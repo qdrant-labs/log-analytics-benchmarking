@@ -7,8 +7,7 @@ heavy_write_secs: 180       # duration of concurrent write load
 recovery_secs: 180           # post-write recovery measurement
 
 # paths
-emitter_dir: "./emitter"
-emitter_features: "qdrant,elasticsearch,dashboard"
+logstorm_config: "./logstorm_config.yaml"
 qstorm_configs_dir: "./qstorm_configs"
 results_dir: "./results"
 

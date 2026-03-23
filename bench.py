@@ -38,8 +38,7 @@ class BenchConfig:
     steady_state_secs: int = 60
     heavy_write_secs: int = 120
     recovery_secs: int = 60
-    emitter_dir: str = "./emitter"
-    emitter_features: str = "qdrant,elasticsearch,dashboard"
+    logstorm_config: str = "./logstorm_config.yaml"
     qstorm_configs_dir: str = "./qstorm_configs"
     results_dir: str = "./results"
     backends: dict = field(default_factory=lambda: {
@@ -54,11 +53,11 @@ class BenchConfig:
         return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
 
 
-def compute_seed_duration(emitter_dir: str, target_logs: int) -> int:
+def compute_seed_duration(logstorm_config: str, target_logs: int) -> int:
     """
-    Read emitter config.yaml and compute how long to run to produce ~target_logs.
+    Read logstorm config and compute how long to run to produce ~target_logs.
     """
-    config_path = Path(emitter_dir) / "config.yaml"
+    config_path = Path(logstorm_config)
     with open(config_path) as f:
         raw = f.read()
     # crude parse — env vars won't affect rates, which are plain numbers
@@ -191,18 +190,17 @@ class _StderrWatcher:
 
 def start_emitter(config: BenchConfig, duration_secs: int, env: dict) -> subprocess.Popen:
     """
-    Start the emitter process with a specific duration.
+    Start the logstorm process with a specific duration.
     """
-    emitter_dir = Path(config.emitter_dir).resolve()
+    logstorm_config = Path(config.logstorm_config).resolve()
     cmd = [
-        "cargo", "run", "--release",
-        "--features", config.emitter_features,
-        "--", "--duration-secs", str(duration_secs),
+        "logstorm",
+        "-c", str(logstorm_config),
+        "--duration-secs", str(duration_secs),
     ]
-    log.info("Starting emitter (duration=%ds): %s", duration_secs, " ".join(cmd))
+    log.info("Starting logstorm (duration=%ds): %s", duration_secs, " ".join(cmd))
     proc = subprocess.Popen(
         cmd,
-        cwd=str(emitter_dir),
         env=env,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -335,10 +333,10 @@ def run_benchmark(config: BenchConfig, skip_load: bool = False) -> None:
 
     env = _make_env()
 
-    # compute seed duration from emitter config
-    seed_secs = compute_seed_duration(config.emitter_dir, config.pre_seed_logs)
+    # compute seed duration from logstorm config
+    seed_secs = compute_seed_duration(config.logstorm_config, config.pre_seed_logs)
     emitter_cfg = yaml.safe_load(
-        (Path(config.emitter_dir) / "config.yaml").read_text()
+        Path(config.logstorm_config).read_text()
     )
     total_rate = sum(s["rate_per_sec"] for s in emitter_cfg.get("services", []))
 
@@ -477,7 +475,7 @@ def main():
     config = BenchConfig.from_yaml(args.config)
 
     if args.dry_run:
-        seed_secs = compute_seed_duration(config.emitter_dir, config.pre_seed_logs)
+        seed_secs = compute_seed_duration(config.logstorm_config, config.pre_seed_logs)
         total = seed_secs + 5 + config.steady_state_secs + config.heavy_write_secs + config.recovery_secs
         print("=== DRY RUN ===")
         print(f"Pre-seed:      ~{config.pre_seed_logs:,} logs ({seed_secs}s)")
