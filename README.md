@@ -14,7 +14,7 @@ Modern observability stacks increasingly use vector search (dense + sparse embed
 
 The benchmark has three main components:
 
-1. **Emitter** (`emitter/`) — A Rust tool that generates synthetic log entries at a configurable rate across multiple simulated microservices. Each log is embedded via OpenAI (`text-embedding-3-small`) and flushed in batches to one or more sinks (Elasticsearch, Qdrant, pgvector).
+1. **[logstorm](https://github.com/qdrant-labs/logstorm)**  — A Rust tool that generates synthetic log entries at a configurable rate across multiple simulated microservices. Each log is embedded via OpenAI (`text-embedding-3-small`) and flushed in batches to one or more sinks (It currently supports Elasticsearch, Qdrant, and pgvector).
 
 2. **[qstorm](https://github.com/nleroy917/qstorm)** — A query load generator that continuously fires search queries against each backend in headless mode, recording per-burst latency stats (p50, p95, p99, QPS) as JSONL.
 
