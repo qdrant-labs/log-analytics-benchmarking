@@ -1,0 +1,42 @@
+variable "aws_region" {
+  description = "AWS region to deploy into"
+  type        = string
+  default     = "us-east-1"
+}
+
+variable "instance_type" {
+  description = "EC2 instance type for each backend (4 vCPU / 16 GiB recommended)"
+  type        = string
+  default     = "m6i.xlarge"
+}
+
+variable "backends" {
+  description = "Which database backends to launch"
+  type        = list(string)
+  default     = ["qdrant", "elasticsearch", "pgvector"]
+
+  validation {
+    condition     = alltrue([for b in var.backends : contains(["qdrant", "elasticsearch", "pgvector"], b)])
+    error_message = "Valid backends are: qdrant, elasticsearch, pgvector."
+  }
+}
+
+variable "es_password" {
+  description = "Elasticsearch password"
+  type        = string
+  default     = "changeme"
+  sensitive   = true
+}
+
+variable "pg_password" {
+  description = "PostgreSQL password"
+  type        = string
+  default     = "changeme"
+  sensitive   = true
+}
+
+variable "key_pair_name" {
+  description = "EC2 key pair name for SSH access (optional, leave empty to disable SSH)"
+  type        = string
+  default     = ""
+}

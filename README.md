@@ -16,7 +16,7 @@ The benchmark has three main components:
 
 1. **[logstorm](https://github.com/qdrant-labs/logstorm)**  — A Rust tool that generates synthetic log entries at a configurable rate across multiple simulated microservices. Each log is embedded via OpenAI (`text-embedding-3-small`) and flushed in batches to one or more sinks (It currently supports Elasticsearch, Qdrant, and pgvector).
 
-2. **[qstorm](https://github.com/nleroy917/qstorm)** — A query load generator that continuously fires search queries against each backend in headless mode, recording per-burst latency stats (p50, p95, p99, QPS) as JSONL.
+2. **[qstorm](https://github.com/qdrant-labs/qstorm)** — A query load generator that continuously fires search queries against each backend in headless mode, recording per-burst latency stats (p50, p95, p99, QPS) as JSONL.
 
 3. **Bench runner** (`bench.py`) — Orchestrates the full experiment across three phases:
    - **Steady-state**: queries only, no writes — establishes a baseline.
@@ -33,8 +33,9 @@ Under concurrent write load, **Qdrant maintains near-baseline query latency** wh
 # start the backends
 docker compose up -d
 
-# install qstorm
+# install qstorm+logstorm
 cargo install qstorm
+cargo install logstorm
 
 # run the benchmark (~6 min with defaults)
 python bench.py
@@ -49,7 +50,7 @@ python analysis.py results/<run-name>
 ## Configuration
 
 - `bench_config.yaml` — phase durations, backends, emitter settings
-- `emitter/config.yaml` — log generation rates, sinks, embedding config
+- `logstorm_config.yaml` — log generation rates, sinks, embedding config
 - `qstorm_configs/` — per-backend query configurations
 
 ## Project structure
@@ -59,8 +60,6 @@ bench.py                 # benchmark orchestrator
 analysis.py              # plotly visualization (Nature-style)
 bench_config.yaml        # benchmark parameters
 docker-compose.yml       # Elasticsearch, Qdrant, Postgres
-emitter/                 # synthetic log generator (Rust)
-  src/sink/              # pluggable sinks (ES, Qdrant, pgvector)
 qstorm_configs/          # qstorm query/connection configs
 results/                 # output directory (JSONL + metadata)
 ```

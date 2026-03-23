@@ -2,3 +2,9 @@
 .fastembed_cache
 results/
 .idea/
+
+# Terraform
+infra/.terraform/
+infra/.terraform.lock.hcl
+infra/*.tfstate
+infra/*.tfstate.backup

@@ -21,6 +21,7 @@ import platform
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 
@@ -114,6 +115,47 @@ def _make_env() -> dict:
     return env
 
 
+def _render_qstorm_config(config_path: Path, env: dict) -> Path:
+    """
+    Override provider URLs in a qstorm config from environment variables.
+
+    If no relevant env vars are set, returns the original path unchanged.
+    Otherwise writes a modified copy to a temp directory and returns that path.
+    """
+    cfg = yaml.safe_load(config_path.read_text())
+    provider_type = cfg.get("provider", {}).get("type", "")
+    modified = False
+
+    if provider_type == "elasticsearch" and env.get("ELASTIC_URL"):
+        cfg["provider"]["url"] = env["ELASTIC_URL"]
+        if "credentials" not in cfg["provider"]:
+            cfg["provider"]["credentials"] = {"type": "basic"}
+        cfg["provider"]["credentials"]["username"] = env.get("ELASTIC_USER", "elastic")
+        cfg["provider"]["credentials"]["password"] = env.get("ELASTIC_PASSWORD", "changeme")
+        modified = True
+    elif provider_type == "qdrant" and env.get("QDRANT_URL"):
+        url = env["QDRANT_URL"]
+        # qstorm uses gRPC (6334), QDRANT_URL may point to REST (6333)
+        cfg["provider"]["url"] = url.replace(":6333", ":6334")
+        modified = True
+    elif provider_type == "pgvector" and env.get("PGVECTOR_HOST"):
+        user = env.get("PGVECTOR_USER", "postgres")
+        pw = env.get("PGVECTOR_PASSWORD", "changeme")
+        host = env["PGVECTOR_HOST"]
+        cfg["provider"]["url"] = f"postgresql://{user}:{pw}@{host}:5432/logs"
+        modified = True
+
+    if not modified:
+        return config_path
+
+    tmp_dir = Path(tempfile.mkdtemp(prefix="qstorm_"))
+    tmp_path = tmp_dir / config_path.name
+    with open(tmp_path, "w") as f:
+        yaml.dump(cfg, f, default_flow_style=False)
+    log.info("Rendered qstorm config %s → %s", config_path.name, tmp_path)
+    return tmp_path
+
+
 class _StderrWatcher:
     """
     Drains process stderr in a background thread, recording a timestamp
@@ -204,7 +246,8 @@ def start_qstorm(
     """
     configs_dir = Path(config.qstorm_configs_dir).resolve()
     backend_cfg = config.backends[backend_name]
-    config_path = str(configs_dir / backend_cfg["config"])
+    raw_config_path = configs_dir / backend_cfg["config"]
+    config_path = str(_render_qstorm_config(raw_config_path, env))
     queries_path = str(configs_dir / backend_cfg["queries"])
 
     cmd = [
@@ -243,18 +286,27 @@ def stop_qstorm(proc: subprocess.Popen, backend_name: str) -> None:
             _active_procs.remove(proc)
 
 
-def check_services_healthy() -> bool:
+def check_services_healthy(env: dict) -> bool:
     """
     Quick health check that ES and Qdrant are reachable.
+    Reads connection URLs from env with localhost fallbacks.
     """
     import urllib.request
     import base64
 
+    qdrant_base = env.get("QDRANT_URL", "http://localhost:6333").rstrip("/")
+    # Health endpoint is on REST port (6333), not gRPC (6334)
+    qdrant_health = qdrant_base.replace(":6334", ":6333") + "/healthz"
+
+    elastic_base = env.get("ELASTIC_URL", "http://localhost:9200").rstrip("/")
+    elastic_user = env.get("ELASTIC_USER", "elastic")
+    elastic_pass = env.get("ELASTIC_PASSWORD", "changeme")
+
     checks = {
-        "Qdrant": ("http://localhost:6333/healthz", None),
+        "Qdrant": (qdrant_health, None),
         "Elasticsearch": (
-            "http://localhost:9200/_cluster/health",
-            "Basic " + base64.b64encode(b"elastic:changeme").decode(),
+            f"{elastic_base}/_cluster/health",
+            "Basic " + base64.b64encode(f"{elastic_user}:{elastic_pass}".encode()).decode(),
         ),
     }
     all_ok = True
@@ -263,7 +315,7 @@ def check_services_healthy() -> bool:
             req = urllib.request.Request(url)
             if auth:
                 req.add_header("Authorization", auth)
-            resp = urllib.request.urlopen(req, timeout=5)
+            resp = urllib.request.urlopen(req, timeout=10)
             log.info("  %s: OK (%d)", name, resp.status)
         except Exception as e:
             log.error("  %s: FAILED (%s)", name, e)
@@ -301,8 +353,8 @@ def run_benchmark(config: BenchConfig, skip_load: bool = False) -> None:
 
     # --- Health check ---
     log.info("Checking service health...")
-    if not check_services_healthy():
-        log.error("Service health checks failed. Is docker compose up?")
+    if not check_services_healthy(env):
+        log.error("Service health checks failed. Are backends running?")
         sys.exit(1)
 
     # --- Phase 0: Pre-seed ---
