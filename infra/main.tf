@@ -34,10 +34,7 @@ data "aws_ssm_parameter" "al2023_ami" {
   name = "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64"
 }
 
-# ---------------------------------------------------------------------------
-# Networking — self-contained VPC so we don't depend on a default VPC
-# ---------------------------------------------------------------------------
-
+# networking -- create a vpc
 data "aws_availability_zones" "available" {
   state = "available"
 }
@@ -77,10 +74,8 @@ resource "aws_route_table_association" "bench" {
   route_table_id = aws_route_table.bench.id
 }
 
-# ---------------------------------------------------------------------------
-# Security group — inbound from caller's IP only
-# ---------------------------------------------------------------------------
-
+# create a security group that allows access to all the necessary ports from my current IP address
+# and **only** from my current IP address for security reasons.
 resource "aws_security_group" "bench" {
   name_prefix = "bench-"
   description = "Allow benchmark traffic from operator IP"

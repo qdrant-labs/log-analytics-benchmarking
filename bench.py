@@ -76,6 +76,7 @@ class RunMetadata:
     hostname: str = ""
     platform_info: str = ""
     cpu_count: int = 0
+    backend_instance_type: str = ""
     emitter_log_rate: float = 0.0
     seed_duration_secs: int = 0
     t_start: str = ""
@@ -272,7 +273,13 @@ def stop_qstorm(proc: subprocess.Popen, backend_name: str) -> None:
     proc.terminate()
     try:
         proc.wait(timeout=15)
-        log.info("qstorm [%s] exited with code %d", backend_name, proc.returncode)
+        stderr = proc.stderr.read().decode(errors="replace") if proc.stderr else ""
+        if proc.returncode != 0:
+            log.error("qstorm [%s] exited with code %d:\n%s", backend_name, proc.returncode, stderr)
+        else:
+            log.info("qstorm [%s] exited with code %d", backend_name, proc.returncode)
+            if stderr:
+                log.debug("qstorm [%s] stderr:\n%s", backend_name, stderr)
     except subprocess.TimeoutExpired:
         log.warning("qstorm [%s] did not exit, killing", backend_name)
         proc.kill()
@@ -345,6 +352,7 @@ def run_benchmark(config: BenchConfig, skip_load: bool = False) -> None:
         hostname=platform.node(),
         platform_info=f"{platform.system()} {platform.release()}",
         cpu_count=os.cpu_count() or 0,
+        backend_instance_type=env.get("BACKEND_INSTANCE_TYPE", "local"),
         emitter_log_rate=total_rate,
         seed_duration_secs=seed_secs,
     )

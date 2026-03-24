@@ -10,20 +10,20 @@ embedding:
 
 sinks:
   # - type: stdout
-  # - type: qdrant
-  #   url: ${QDRANT_URL}
-  #   api_key: ${QDRANT_API_KEY}
-  #   collection_name: logs
-  # - type: elasticsearch
-  #   url: ${ELASTIC_URL}
-  #   user: ${ELASTIC_USER}
-  #   password: ${ELASTIC_PASSWORD}
-  #   index_name: logs
-  - type: pgvector
-    host: ${PGVECTOR_HOST}
-    user: ${PGVECTOR_USER}
-    password: ${PGVECTOR_PASSWORD}
-    table_name: logs
+  - type: qdrant
+    url: ${QDRANT_URL}
+    api_key: ${QDRANT_API_KEY}
+    collection_name: logs
+  - type: elasticsearch
+    url: ${ELASTIC_URL}
+    user: ${ELASTIC_USER}
+    password: ${ELASTIC_PASSWORD}
+    index_name: logs
+  # - type: pgvector
+  #   host: ${PGVECTOR_HOST}
+  #   user: ${PGVECTOR_USER}
+  #   password: ${PGVECTOR_PASSWORD}
+  #   table_name: logs
   - type: dashboard
     port: 3000
 

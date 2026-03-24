@@ -29,6 +29,8 @@ Under concurrent write load, **Qdrant maintains near-baseline query latency** wh
 
 ## Quick start
 
+### Local (docker)
+
 ```bash
 # start the backends
 docker compose up -d
@@ -47,11 +49,84 @@ python bench.py --skip-load
 python analysis.py results/<run-name>
 ```
 
+### On AWS (reproducible, standardized hardware)
+
+Each database backend runs on its own dedicated EC2 instance (`m6i.xlarge` by default), keeping results reproducible and eliminating resource contention. The benchmark client (logstorm, qstorm, bench.py) still runs locally.
+
+**Prerequisites:** AWS CLI configured (`aws configure`), Terraform installed.
+
+```bash
+# import your SSH public key to AWS (one-time setup)
+aws ec2 import-key-pair \
+  --key-name bench-key \
+  --public-key-material fileb://~/.ssh/id_ed25519.pub \
+  --region us-east-1
+
+# spin up the backends
+cd infra/
+terraform init
+terraform apply -var="key_pair_name=bench-key"
+```
+
+Terraform will create a VPC, launch one EC2 instance per backend, and write a `.env` file in the project root with the remote connection URLs. Wait ~2 minutes for Docker to finish pulling images, then run the benchmark as normal:
+
+```bash
+cd ..
+python bench.py
+```
+
+**SSH into an instance for debugging:**
+
+After `terraform apply`, get the public IPs from the outputs:
+
+```bash
+terraform output qdrant_public_ip
+terraform output elasticsearch_public_ip
+terraform output pgvector_public_ip
+```
+
+Then SSH in with the key pair you registered:
+
+```bash
+ssh -i ~/.ssh/id_ed25519 ec2-user@<public-ip>
+
+# check that the container is running
+sudo docker ps
+
+# tail container logs
+sudo docker logs -f qdrant        # or: elasticsearch, postgres
+```
+
+When you're done, tear everything down:
+
+```bash
+cd infra/
+terraform destroy
+```
+
+**Customizing the deployment:**
+
+| Variable | Default | Description |
+|---|---|---|
+| `instance_type` | `m6i.xlarge` | EC2 instance type (4 vCPU / 16 GiB) |
+| `backends` | `["qdrant", "elasticsearch", "pgvector"]` | Which backends to launch |
+| `aws_region` | `us-east-1` | AWS region |
+| `key_pair_name` | `""` | Key pair for SSH access (optional) |
+
+```bash
+# example: only launch qdrant and elasticsearch, in us-west-2
+terraform apply \
+  -var='backends=["qdrant","elasticsearch"]' \
+  -var="aws_region=us-west-2" \
+  -var="key_pair_name=bench-key"
+```
+
 ## Configuration
 
-- `bench_config.yaml` — phase durations, backends, emitter settings
+- `bench_config.yaml` — phase durations, backends, logstorm config path
 - `logstorm_config.yaml` — log generation rates, sinks, embedding config
 - `qstorm_configs/` — per-backend query configurations
+- `infra/` — Terraform config for AWS deployment
 
 ## Project structure
 
@@ -59,7 +134,9 @@ python analysis.py results/<run-name>
 bench.py                 # benchmark orchestrator
 analysis.py              # plotly visualization (Nature-style)
 bench_config.yaml        # benchmark parameters
-docker-compose.yml       # Elasticsearch, Qdrant, Postgres
+docker-compose.yml       # Elasticsearch, Qdrant, Postgres (local)
+logstorm_config.yaml     # logstorm sink + rate configuration
 qstorm_configs/          # qstorm query/connection configs
+infra/                   # Terraform: VPC, EC2 instances, security group
 results/                 # output directory (JSONL + metadata)
 ```
