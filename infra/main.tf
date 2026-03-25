@@ -145,6 +145,31 @@ resource "aws_security_group" "bench" {
   }
 }
 
+# iam role — allows instances to push CloudWatch metrics
+resource "aws_iam_role" "bench_instance" {
+  name_prefix = "bench-instance-"
+  tags        = local.tags
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action    = "sts:AssumeRole"
+      Effect    = "Allow"
+      Principal = { Service = "ec2.amazonaws.com" }
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "cw_agent" {
+  role       = aws_iam_role.bench_instance.name
+  policy_arn = "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
+}
+
+resource "aws_iam_instance_profile" "bench_instance" {
+  name_prefix = "bench-instance-"
+  role        = aws_iam_role.bench_instance.name
+}
+
 # ec2 instances
 resource "aws_instance" "qdrant" {
   count = lookup(local.has, "qdrant", false) ? 1 : 0
@@ -153,7 +178,9 @@ resource "aws_instance" "qdrant" {
   instance_type               = var.instance_type
   subnet_id                   = aws_subnet.bench.id
   vpc_security_group_ids      = [aws_security_group.bench.id]
+  iam_instance_profile        = aws_iam_instance_profile.bench_instance.name
   associate_public_ip_address = true
+  monitoring                  = true
   key_name                    = var.key_pair_name != "" ? var.key_pair_name : null
 
   user_data = file("${path.module}/user_data/qdrant.sh")
@@ -168,7 +195,9 @@ resource "aws_instance" "elasticsearch" {
   instance_type               = var.instance_type
   subnet_id                   = aws_subnet.bench.id
   vpc_security_group_ids      = [aws_security_group.bench.id]
+  iam_instance_profile        = aws_iam_instance_profile.bench_instance.name
   associate_public_ip_address = true
+  monitoring                  = true
   key_name                    = var.key_pair_name != "" ? var.key_pair_name : null
 
   user_data = templatefile("${path.module}/user_data/elasticsearch.sh", {
@@ -185,7 +214,9 @@ resource "aws_instance" "pgvector" {
   instance_type               = var.instance_type
   subnet_id                   = aws_subnet.bench.id
   vpc_security_group_ids      = [aws_security_group.bench.id]
+  iam_instance_profile        = aws_iam_instance_profile.bench_instance.name
   associate_public_ip_address = true
+  monitoring                  = true
   key_name                    = var.key_pair_name != "" ? var.key_pair_name : null
 
   user_data = templatefile("${path.module}/user_data/pgvector.sh", {

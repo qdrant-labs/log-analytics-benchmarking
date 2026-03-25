@@ -1,5 +1,6 @@
 import argparse
 import json
+from pathlib import Path
 
 import polars as pl
 import plotly.graph_objects as go
@@ -7,7 +8,9 @@ from plotly.subplots import make_subplots
 
 parser = argparse.ArgumentParser(description='Analyze benchmark results')
 parser.add_argument('results_dir', help='Path to results directory (e.g. results/2026-02-11T08-17-00)')
+parser.add_argument('--skip-metrics', action='store_true', help='Skip infrastructure metrics plots')
 RESULTS_DIR = parser.parse_args().results_dir
+SKIP_METRICS = parser.parse_args().skip_metrics
 
 # NPG (Nature Publishing Group) palette
 COLORS = {
@@ -145,3 +148,125 @@ for ann in fig.layout.annotations:
 fig.show()
 # save figure as svg
 fig.write_image(f'{RESULTS_DIR}/benchmark_results.svg')
+
+
+# infrastructure metrics (CPU, memory) from CloudWatch CSVs
+
+def load_metrics_csv(results_dir, backend, metric):
+    """
+    Load a metrics CSV (e.g. qdrant_cpu.csv) and return a polars DataFrame.
+    """
+    path = Path(results_dir) / f'{backend}_{metric}.csv'
+    if not path.exists():
+        return None
+    df = pl.read_csv(str(path))
+    col = 'cpu_percent' if metric == 'cpu' else 'memory_percent'
+    df = df.with_columns(pl.col('timestamp').str.to_datetime(time_zone='UTC'))
+    df = df.with_columns(
+        ((pl.col('timestamp') - t0).dt.total_milliseconds() / 1000).alias('elapsed_s')
+    )
+    return df.select(['elapsed_s', col])
+
+
+if not SKIP_METRICS:
+    # check which backends have metrics files
+    metrics_backends = {}
+    for backend_name, display_name in [('qdrant', 'Qdrant'), ('elasticsearch', 'Elasticsearch')]:
+        cpu_df = load_metrics_csv(RESULTS_DIR, backend_name, 'cpu')
+        mem_df = load_metrics_csv(RESULTS_DIR, backend_name, 'memory')
+        if cpu_df is not None or mem_df is not None:
+            metrics_backends[display_name] = {
+                'cpu': cpu_df,
+                'memory': mem_df,
+                'backend_key': backend_name,
+            }
+
+    if metrics_backends:
+        metrics_fig = make_subplots(
+            rows=1, cols=2,
+            subplot_titles=(
+                '<b>a</b>  CPU utilization',
+                '<b>b</b>  Memory utilization',
+            ),
+            horizontal_spacing=0.12,
+        )
+
+        for i, (name, data) in enumerate(metrics_backends.items()):
+            color = COLORS[name]
+
+            if data['cpu'] is not None:
+                metrics_fig.add_trace(go.Scatter(
+                    x=data['cpu']['elapsed_s'],
+                    y=data['cpu']['cpu_percent'],
+                    mode='lines', name=name,
+                    line=dict(color=color, width=1.5),
+                    legendgroup=name,
+                    showlegend=(i == 0 or name not in [list(metrics_backends.keys())[0]]),
+                ), row=1, col=1)
+
+            if data['memory'] is not None:
+                metrics_fig.add_trace(go.Scatter(
+                    x=data['memory']['elapsed_s'],
+                    y=data['memory']['memory_percent'],
+                    mode='lines', name=name,
+                    line=dict(color=color, width=1.5),
+                    legendgroup=name,
+                    showlegend=data['cpu'] is None,
+                ), row=1, col=2)
+
+        # phase boundaries
+        for label, ts_str in phase_markers.items():
+            ts = pl.Series([ts_str]).str.to_datetime(time_zone='UTC')[0]
+            x_sec = (ts - t0).total_seconds()
+            for col_idx in (1, 2):
+                metrics_fig.add_vline(
+                    x=x_sec, row=1, col=col_idx,
+                    line_width=1, line_dash='dash', line_color='#888888',
+                    annotation=dict(
+                        text=label, font_size=9, font_color='#888888',
+                        textangle=-90, yanchor='top', yref='y domain', y=0.95,
+                    ) if col_idx == 1 else None,
+                )
+
+        # axis labels + 0-100 range
+        metrics_fig.update_yaxes(title_text='CPU %', range=[0, 100], row=1, col=1)
+        metrics_fig.update_yaxes(title_text='Memory %', range=[0, 100], row=1, col=2)
+        for col_idx in (1, 2):
+            metrics_fig.update_xaxes(title_text='Time (s)', row=1, col=col_idx)
+
+        # Nature style
+        metrics_fig.update_layout(
+            font=dict(family='Arial', size=12),
+            plot_bgcolor='white',
+            paper_bgcolor='white',
+            width=900,
+            height=350,
+            margin=dict(t=40, b=50, l=60, r=20),
+            legend=dict(
+                orientation='h',
+                yanchor='bottom', y=1.04,
+                xanchor='center', x=0.5,
+                font=dict(size=11),
+            ),
+            hovermode='x unified',
+        )
+        metrics_fig.update_xaxes(
+            showgrid=False,
+            showline=True, linewidth=1, linecolor='black',
+            ticks='outside', ticklen=4, tickwidth=1, tickcolor='black',
+        )
+        metrics_fig.update_yaxes(
+            showgrid=False,
+            showline=True, linewidth=1, linecolor='black',
+            ticks='outside', ticklen=4, tickwidth=1, tickcolor='black',
+        )
+        for ann in metrics_fig.layout.annotations:
+            ann.font = dict(family='Arial', size=13)
+            ann.xanchor = 'left'
+            ann.x = ann.x - 0.04
+
+        metrics_fig.show()
+        metrics_fig.write_image(f'{RESULTS_DIR}/infra_metrics.svg')
+        print(f'Infrastructure metrics saved to {RESULTS_DIR}/infra_metrics.svg')
+    else:
+        print('No infrastructure metrics CSVs found — run collect_metrics.py first to generate them.')

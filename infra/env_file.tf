@@ -21,5 +21,11 @@ resource "local_file" "dot_env" {
     length(aws_instance.pgvector) > 0 ? "PGVECTOR_USER=postgres" : null,
     length(aws_instance.pgvector) > 0 ? "PGVECTOR_PASSWORD=${var.pg_password}" : null,
     "",
+    "# Instance IDs for CloudWatch metrics",
+    length(aws_instance.qdrant) > 0 ? "QDRANT_INSTANCE_ID=${aws_instance.qdrant[0].id}" : null,
+    length(aws_instance.elasticsearch) > 0 ? "ELASTIC_INSTANCE_ID=${aws_instance.elasticsearch[0].id}" : null,
+    length(aws_instance.pgvector) > 0 ? "PGVECTOR_INSTANCE_ID=${aws_instance.pgvector[0].id}" : null,
+    "AWS_REGION=${var.aws_region}",
+    "",
   ]))
 }

@@ -28,6 +28,21 @@ output "pgvector_public_ip" {
   value       = length(aws_instance.pgvector) > 0 ? aws_instance.pgvector[0].public_ip : null
 }
 
+output "qdrant_instance_id" {
+  description = "Qdrant EC2 instance ID (for CloudWatch metrics)"
+  value       = length(aws_instance.qdrant) > 0 ? aws_instance.qdrant[0].id : null
+}
+
+output "elasticsearch_instance_id" {
+  description = "Elasticsearch EC2 instance ID (for CloudWatch metrics)"
+  value       = length(aws_instance.elasticsearch) > 0 ? aws_instance.elasticsearch[0].id : null
+}
+
+output "pgvector_instance_id" {
+  description = "pgvector EC2 instance ID (for CloudWatch metrics)"
+  value       = length(aws_instance.pgvector) > 0 ? aws_instance.pgvector[0].id : null
+}
+
 output "security_group_id" {
   description = "Security group ID"
   value       = aws_security_group.bench.id
