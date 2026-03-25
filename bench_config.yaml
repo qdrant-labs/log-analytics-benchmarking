@@ -2,7 +2,7 @@
 pre_seed_logs: 100000
 
 # phase durations (seconds)
-steady_state_secs: 60       # baseline measurement without writes
+steady_state_secs: 120       # baseline measurement without writes
 heavy_write_secs: 180       # duration of concurrent write load
 recovery_secs: 180           # post-write recovery measurement
 
