@@ -165,6 +165,7 @@ def load_metrics_csv(results_dir, backend, metric):
     df = df.with_columns(
         ((pl.col('timestamp') - t0).dt.total_milliseconds() / 1000).alias('elapsed_s')
     )
+    df = df.filter(pl.col('elapsed_s') >= 0)
     return df.select(['elapsed_s', col])
 
 
