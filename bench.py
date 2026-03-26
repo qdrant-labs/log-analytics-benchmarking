@@ -377,8 +377,8 @@ def run_benchmark(config: BenchConfig, skip_load: bool = False) -> None:
         wait_for_emitter(emitter_seed, "pre-seed", timeout=seed_secs + 60)
         metadata.t_seed_done = now_iso()
 
-        log.info("Sleeping 5s for index settle...")
-        time.sleep(5)
+        log.info("Sleeping 30s for index settle...")
+        time.sleep(30)
 
     # --- Phase 1: Start qstorm ---
     log.info("Phase 1: Starting qstorm against all backends...")

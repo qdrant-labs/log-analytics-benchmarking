@@ -6,11 +6,11 @@ provider:
   url: "http://localhost:6334"
   collection_name: "logs"  # Collection name in Qdrant
   # api_key: "your-api-key"  # Optional API key authentication
-  vector_field: "dense"      # Named vector field (omit for default unnamed vector)
+  # vector_field: "dense"      # Named vector field (omit for default unnamed vector)
   text_field: "bm25"       # BM25 sparse index name (required for hybrid mode)
 
 benchmark:
-  mode: hybrid  # "dense", "sparse", or "hybrid"
+  mode: keyword  # "vector" | "keyword" | "hybrid"
   warmup_iterations: 10
   burst_size: 100
   concurrency: 10

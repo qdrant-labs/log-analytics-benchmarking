@@ -11,25 +11,27 @@ embedding:
 sinks:
   # - type: stdout
   - type: qdrant
-    url: ${QDRANT_URL}
-    api_key: ${QDRANT_API_KEY}
+    url: "${QDRANT_URL}"
+    api_key: "${QDRANT_API_KEY}"
     collection_name: logs
+    index_mode: keyword
   - type: elasticsearch
-    url: ${ELASTIC_URL}
-    user: ${ELASTIC_USER}
-    password: ${ELASTIC_PASSWORD}
+    url: "${ELASTIC_URL}"
+    user: "${ELASTIC_USER}"
+    password: "${ELASTIC_PASSWORD}"
     index_name: logs
+    index_mode: keyword
   # - type: pgvector
-  #   host: ${PGVECTOR_HOST}
-  #   user: ${PGVECTOR_USER}
-  #   password: ${PGVECTOR_PASSWORD}
+  #   host: "${PGVECTOR_HOST}"
+  #   user: "${PGVECTOR_USER}"
+  #   password: "${PGVECTOR_PASSWORD}"
   #   table_name: logs
   - type: dashboard
     port: 3000
 
 services:
   - name: api-gateway
-    rate_per_sec: 5.0
+    rate_per_sec: 250.0
     level_weights:
       debug: 0.1
       info: 0.7
@@ -37,7 +39,7 @@ services:
       error: 0.05
 
   - name: auth-service
-    rate_per_sec: 10.0
+    rate_per_sec: 50.0
     level_weights:
       debug: 0.05
       info: 0.6
@@ -45,7 +47,7 @@ services:
       error: 0.15
 
   - name: payment-service
-    rate_per_sec: 5.0
+    rate_per_sec: 10.0
     level_weights:
       debug: 0.05
       info: 0.5
@@ -53,7 +55,7 @@ services:
       error: 0.2
 
   - name: user-service
-    rate_per_sec: 10.0
+    rate_per_sec: 100.0
     level_weights:
       debug: 0.1
       info: 0.65
