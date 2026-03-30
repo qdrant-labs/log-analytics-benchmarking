@@ -21,11 +21,11 @@ sinks:
     password: "${ELASTIC_PASSWORD}"
     index_name: logs
     index_mode: keyword
-  # - type: pgvector
-  #   host: "${PGVECTOR_HOST}"
-  #   user: "${PGVECTOR_USER}"
-  #   password: "${PGVECTOR_PASSWORD}"
-  #   table_name: logs
+  - type: pgvector
+    host: "${PGVECTOR_HOST}"
+    user: "${PGVECTOR_USER}"
+    password: "${PGVECTOR_PASSWORD}"
+    table_name: logs
   - type: dashboard
     port: 3000
 

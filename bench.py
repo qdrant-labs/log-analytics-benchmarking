@@ -44,6 +44,7 @@ class BenchConfig:
     backends: dict = field(default_factory=lambda: {
         "qdrant": {"config": "qdrant.yaml", "queries": "queries.yaml"},
         "elasticsearch": {"config": "elastic.yaml", "queries": "queries.yaml"},
+        "pgvector": {"config": "pgvector.yaml", "queries": "queries.yaml"},
     })
 
     @classmethod
@@ -293,11 +294,12 @@ def stop_qstorm(proc: subprocess.Popen, backend_name: str) -> None:
 
 def check_services_healthy(env: dict) -> bool:
     """
-    Quick health check that ES and Qdrant are reachable.
+    Quick health check that backends are reachable.
     Reads connection URLs from env with localhost fallbacks.
     """
     import urllib.request
     import base64
+    import socket
 
     qdrant_base = env.get("QDRANT_URL", "http://localhost:6333").rstrip("/")
     # Health endpoint is on REST port (6333), not gRPC (6334)
@@ -325,6 +327,17 @@ def check_services_healthy(env: dict) -> bool:
         except Exception as e:
             log.error("  %s: FAILED (%s)", name, e)
             all_ok = False
+
+    # pgvector: TCP connect check
+    pg_host = env.get("PGVECTOR_HOST", "localhost")
+    try:
+        s = socket.create_connection((pg_host, 5432), timeout=5)
+        s.close()
+        log.info("  pgvector: OK")
+    except Exception as e:
+        log.error("  pgvector: FAILED (%s)", e)
+        all_ok = False
+
     return all_ok
 
 
@@ -465,9 +478,9 @@ def main():
         help="Print the plan and exit without running",
     )
     parser.add_argument(
-        "--skip-load",
+        "--seed",
         action="store_true",
-        help="Skip the pre-seed data loading phase (use when databases are already populated)",
+        help="Seed databases via logstorm before benchmarking (default: skip, use seed.py instead)",
     )
     args = parser.parse_args()
 
@@ -494,7 +507,7 @@ def main():
         print(f"Backends:      {list(config.backends.keys())}")
         return
 
-    run_benchmark(config, skip_load=args.skip_load)
+    run_benchmark(config, skip_load=not args.seed)
 
 
 if __name__ == "__main__":

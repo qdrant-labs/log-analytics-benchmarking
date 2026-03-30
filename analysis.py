@@ -12,10 +12,11 @@ parser.add_argument('--skip-metrics', action='store_true', help='Skip infrastruc
 RESULTS_DIR = parser.parse_args().results_dir
 SKIP_METRICS = parser.parse_args().skip_metrics
 
-# NPG (Nature Publishing Group) palette
+# brand colors
 COLORS = {
-    'Elasticsearch': '#E64B35',
-    'Qdrant': '#4DBBD5',
+    'Qdrant': '#DC244C',
+    'Elasticsearch': '#4DBBD5',
+    'pgvector': '#00A67E',
 }
 
 
@@ -42,11 +43,18 @@ def load_backend(results_dir, name):
 with open(f'{RESULTS_DIR}/metadata.json') as f:
     metadata = json.load(f)
 
-# load both backends and align to a common t=0
-backends = {
-    'Elasticsearch': load_backend(RESULTS_DIR, 'elasticsearch'),
-    'Qdrant': load_backend(RESULTS_DIR, 'qdrant'),
+# auto-detect backends from JSONL files in the results directory
+BACKEND_DISPLAY_NAMES = {
+    'elasticsearch': 'Elasticsearch',
+    'qdrant': 'Qdrant',
+    'pgvector': 'pgvector',
 }
+
+backends = {}
+for jsonl_file in sorted(Path(RESULTS_DIR).glob('*.jsonl')):
+    key = jsonl_file.stem  # e.g. "qdrant", "elasticsearch", "pgvector"
+    display_name = BACKEND_DISPLAY_NAMES.get(key, key)
+    backends[display_name] = load_backend(RESULTS_DIR, key)
 # use qstorm start as the common t=0 so phase lines align with data
 t0 = pl.Series([metadata['t_qstorm_start']]).str.to_datetime(time_zone='UTC')[0]
 for name in backends:
@@ -172,7 +180,7 @@ def load_metrics_csv(results_dir, backend, metric):
 if not SKIP_METRICS:
     # check which backends have metrics files
     metrics_backends = {}
-    for backend_name, display_name in [('qdrant', 'Qdrant'), ('elasticsearch', 'Elasticsearch')]:
+    for backend_name, display_name in BACKEND_DISPLAY_NAMES.items():
         cpu_df = load_metrics_csv(RESULTS_DIR, backend_name, 'cpu')
         mem_df = load_metrics_csv(RESULTS_DIR, backend_name, 'memory')
         if cpu_df is not None or mem_df is not None:
