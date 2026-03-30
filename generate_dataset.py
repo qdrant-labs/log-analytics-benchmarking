@@ -14,6 +14,7 @@ import argparse
 import random
 import uuid
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import numpy as np
 import polars as pl
@@ -162,54 +163,63 @@ def main():
     embeddings = embed_messages(pool, model=args.model)
     print(f"  Embedded {len(embeddings):,} messages ({len(next(iter(embeddings.values())))} dims)")
 
-    # 3. generate log entries
-    print(f"Generating {args.count:,} log entries...")
+    # 3. generate log entries in chunks, writing temp parquet files
+    chunk_size = 50_000
+    print(f"Generating {args.count:,} log entries in chunks of {chunk_size:,}...")
     service_weights = [s["rate_weight"] for s in SERVICES]
     total_weight = sum(service_weights)
     service_probs = [w / total_weight for w in service_weights]
 
-    ids = []
-    timestamps = []
-    services = []
-    levels = []
-    messages = []
-    entry_embeddings = []
-
     base_time = datetime.now(timezone.utc) - timedelta(hours=1)
+    tmp_dir = Path(args.output).parent / ".tmp_chunks"
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    chunk_files = []
 
-    for i in tqdm(range(args.count), desc="Generating"):
-        # pick service (weighted)
-        service = rng.choices(SERVICES, weights=service_probs, k=1)[0]
-        # pick level (weighted)
-        level = weighted_choice(rng, service["levels"])
-        # pick message from pool
-        message = rng.choice(pool)
-        # jitter the embedding
-        base_emb = embeddings[message]
-        emb = jitter_embedding(base_emb, rng, scale=0.01)
-        # timestamp: spread across 1 hour
-        ts = base_time + timedelta(seconds=i * (3600 / args.count))
+    for chunk_start in tqdm(range(0, args.count, chunk_size), desc="Generating"):
+        chunk_end = min(chunk_start + chunk_size, args.count)
+        ids = []
+        timestamps = []
+        services = []
+        levels_list = []
+        messages_list = []
+        entry_embeddings = []
 
-        ids.append(str(uuid.uuid4()))
-        timestamps.append(ts)
-        services.append(service["name"])
-        levels.append(level)
-        messages.append(message)
-        entry_embeddings.append(emb)
+        for i in range(chunk_start, chunk_end):
+            service = rng.choices(SERVICES, weights=service_probs, k=1)[0]
+            level = weighted_choice(rng, service["levels"])
+            message = rng.choice(pool)
+            base_emb = embeddings[message]
+            emb = jitter_embedding(base_emb, rng, scale=0.01)
+            ts = base_time + timedelta(seconds=i * (3600 / args.count))
 
-    # 4. save to parquet
-    print(f"Writing {args.output}...")
-    df = pl.DataFrame({
-        "id": ids,
-        "timestamp": timestamps,
-        "service": services,
-        "level": levels,
-        "message": messages,
-        "embedding": entry_embeddings,
-    })
-    df.write_parquet(args.output)
+            ids.append(str(uuid.uuid4()))
+            timestamps.append(ts)
+            services.append(service["name"])
+            levels_list.append(level)
+            messages_list.append(message)
+            entry_embeddings.append(emb)
 
-    file_size_mb = pl.scan_parquet(args.output).collect().estimated_size("mb")
+        chunk_path = tmp_dir / f"chunk_{chunk_start:010d}.parquet"
+        pl.DataFrame({
+            "id": ids,
+            "timestamp": timestamps,
+            "service": services,
+            "level": levels_list,
+            "message": messages_list,
+            "embedding": entry_embeddings,
+        }).write_parquet(chunk_path)
+        chunk_files.append(chunk_path)
+
+    # 4. merge chunks into final parquet
+    print(f"Merging {len(chunk_files)} chunks into {args.output}...")
+    pl.scan_parquet(tmp_dir / "*.parquet").sink_parquet(args.output)
+
+    # cleanup temp files
+    for f in chunk_files:
+        f.unlink()
+    tmp_dir.rmdir()
+
+    file_size_mb = Path(args.output).stat().st_size / (1024 * 1024)
     print(f"Done: {args.output} ({file_size_mb:.0f} MB, {args.count:,} rows)")
 
 
