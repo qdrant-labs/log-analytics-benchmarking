@@ -5,8 +5,8 @@ plotly
 kaleido
 
 # providers
-elasticsearch
-opensearch-py
+elasticsearch[async]
+opensearch-py[async]
 psycopg[binary]
 pgvector
 qdrant-client

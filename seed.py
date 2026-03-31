@@ -12,6 +12,7 @@ Usage:
 """
 
 import argparse
+import asyncio
 import os
 import sys
 import time
@@ -36,15 +37,15 @@ def load_env(env_path: str = ".env") -> dict:
     return env
 
 
-def seed_qdrant(df: pl.DataFrame, env: dict, batch_size: int = 1000,
-                index_mode: str = "keyword"):
-    from qdrant_client import QdrantClient, models
+async def seed_qdrant(df: pl.DataFrame, env: dict, batch_size: int = 1000,
+                      index_mode: str = "keyword"):
+    from qdrant_client import AsyncQdrantClient, models
 
     url = env.get("QDRANT_URL", "http://localhost:6333")
     # use REST port for Python client
     url = url.replace(":6334", ":6333")
     api_key = env.get("QDRANT_API_KEY")
-    client = QdrantClient(url=url, api_key=api_key)
+    client = AsyncQdrantClient(url=url, api_key=api_key)
     collection = "logs"
 
     # build vector config based on index mode
@@ -62,18 +63,18 @@ def seed_qdrant(df: pl.DataFrame, env: dict, batch_size: int = 1000,
         )
 
     # recreate collection
-    if client.collection_exists(collection):
-        client.delete_collection(collection)
+    if await client.collection_exists(collection):
+        await client.delete_collection(collection)
 
-    client.create_collection(
+    await client.create_collection(
         collection_name=collection,
         vectors_config=vectors_config or None,
         sparse_vectors_config=sparse_vectors_config or None,
     )
 
     # create payload indexes
-    client.create_payload_index(collection, "service", models.PayloadSchemaType.KEYWORD)
-    client.create_payload_index(collection, "level", models.PayloadSchemaType.KEYWORD)
+    await client.create_payload_index(collection, "service", models.PayloadSchemaType.KEYWORD)
+    await client.create_payload_index(collection, "level", models.PayloadSchemaType.KEYWORD)
 
     # bulk upsert
     total = len(df)
@@ -100,24 +101,25 @@ def seed_qdrant(df: pl.DataFrame, env: dict, batch_size: int = 1000,
                     "timestamp": row["timestamp"].isoformat(),
                 },
             ))
-        client.upsert(collection_name=collection, points=points)
+        await client.upsert(collection_name=collection, points=points)
 
     elapsed = time.time() - t0
     print(f"  Qdrant: {total:,} records in {elapsed:.1f}s ({total/elapsed:.0f} records/s)")
+    await client.close()
 
 
-def seed_elasticsearch(
+async def seed_elasticsearch(
     df: pl.DataFrame,
     env: dict,
     batch_size: int = 1000,
     index_mode: str = "keyword"
 ):
-    from elasticsearch import Elasticsearch, helpers
+    from elasticsearch import AsyncElasticsearch, helpers
 
     url = env.get("ELASTIC_URL", "http://localhost:9200")
     user = env.get("ELASTIC_USER", "elastic")
     password = env.get("ELASTIC_PASSWORD", "changeme")
-    client = Elasticsearch(url, basic_auth=(user, password))
+    client = AsyncElasticsearch(url, basic_auth=(user, password))
     index = "logs"
 
     # build mappings
@@ -137,10 +139,10 @@ def seed_elasticsearch(
         }
 
     # recreate index
-    if client.indices.exists(index=index):
-        client.indices.delete(index=index)
+    if await client.indices.exists(index=index):
+        await client.indices.delete(index=index)
 
-    client.indices.create(index=index, mappings={"properties": properties})
+    await client.indices.create(index=index, mappings={"properties": properties})
 
     # bulk index
     total = len(df)
@@ -163,9 +165,8 @@ def seed_elasticsearch(
             yield doc
 
     successes, errors = 0, []
-    for ok, item in tqdm(
-        helpers.streaming_bulk(client, gen_actions(), chunk_size=batch_size, raise_on_error=False),
-        total=total, desc="Elasticsearch",
+    async for ok, item in helpers.async_streaming_bulk(
+        client, gen_actions(), chunk_size=batch_size, raise_on_error=False
     ):
         if ok:
             successes += 1
@@ -176,11 +177,12 @@ def seed_elasticsearch(
     print(f"  Elasticsearch: {successes:,} records in {elapsed:.1f}s ({successes/elapsed:.0f} records/s)")
     if errors:
         print(f"  {len(errors)} errors (first: {errors[0]})", file=sys.stderr)
+    await client.close()
 
 
-def seed_opensearch(df: pl.DataFrame, env: dict, batch_size: int = 1000,
-                    index_mode: str = "keyword"):
-    from opensearchpy import OpenSearch, helpers
+async def seed_opensearch(df: pl.DataFrame, env: dict, batch_size: int = 1000,
+                          index_mode: str = "keyword"):
+    from opensearchpy import AsyncOpenSearch, helpers
 
     url = env.get("OPENSEARCH_URL", "http://localhost:9200")
     user = env.get("OPENSEARCH_USER", "admin")
@@ -188,7 +190,7 @@ def seed_opensearch(df: pl.DataFrame, env: dict, batch_size: int = 1000,
     # parse host/port from URL
     from urllib.parse import urlparse
     parsed = urlparse(url)
-    client = OpenSearch(
+    client = AsyncOpenSearch(
         hosts=[{"host": parsed.hostname, "port": parsed.port or 9200}],
         http_auth=(user, password),
         use_ssl=parsed.scheme == "https",
@@ -218,13 +220,13 @@ def seed_opensearch(df: pl.DataFrame, env: dict, batch_size: int = 1000,
         settings["index"] = {"knn": True}
 
     # recreate index
-    if client.indices.exists(index=index):
-        client.indices.delete(index=index)
+    if await client.indices.exists(index=index):
+        await client.indices.delete(index=index)
 
     body = {"mappings": {"properties": properties}}
     if settings:
         body["settings"] = settings
-    client.indices.create(index=index, body=body)
+    await client.indices.create(index=index, body=body)
 
     # bulk index
     total = len(df)
@@ -246,9 +248,8 @@ def seed_opensearch(df: pl.DataFrame, env: dict, batch_size: int = 1000,
             yield doc
 
     successes, errors = 0, []
-    for ok, item in tqdm(
-        helpers.streaming_bulk(client, gen_actions(), chunk_size=batch_size, raise_on_error=False),
-        total=total, desc="OpenSearch",
+    async for ok, item in helpers.async_streaming_bulk(
+        client, gen_actions(), chunk_size=batch_size, raise_on_error=False
     ):
         if ok:
             successes += 1
@@ -259,22 +260,26 @@ def seed_opensearch(df: pl.DataFrame, env: dict, batch_size: int = 1000,
     print(f"  OpenSearch: {successes:,} records in {elapsed:.1f}s ({successes/elapsed:.0f} records/s)")
     if errors:
         print(f"  {len(errors)} errors (first: {errors[0]})", file=sys.stderr)
+    await client.close()
 
 
-def seed_pgvector(df: pl.DataFrame, env: dict, batch_size: int = 1000):
-    import psycopg
-    from pgvector.psycopg import register_vector
+async def seed_pgvector(df: pl.DataFrame, env: dict, batch_size: int = 1000):
+    from psycopg import AsyncConnection
+    from pgvector.psycopg import register_vector_async
 
     host = env.get("PGVECTOR_HOST", "localhost")
     user = env.get("PGVECTOR_USER", "postgres")
     password = env.get("PGVECTOR_PASSWORD", "changeme")
-    conn = psycopg.connect(host=host, user=user, password=password, dbname="logs", port=5432)
-    register_vector(conn)
+    conn = await AsyncConnection.connect(
+        host=host, user=user, password=password, dbname="logs", port=5432,
+        autocommit=False,
+    )
+    await register_vector_async(conn)
     cur = conn.cursor()
 
     # ensure table exists
     dim = len(df["embedding"][0])
-    cur.execute(f"""
+    await cur.execute(f"""
         CREATE TABLE IF NOT EXISTS logs (
             id TEXT PRIMARY KEY,
             timestamp TIMESTAMPTZ,
@@ -284,8 +289,8 @@ def seed_pgvector(df: pl.DataFrame, env: dict, batch_size: int = 1000):
             embedding vector({dim})
         )
     """)
-    cur.execute("TRUNCATE logs")
-    conn.commit()
+    await cur.execute("TRUNCATE logs")
+    await conn.commit()
 
     total = len(df)
     print(f"Seeding pgvector ({host}) with {total:,} records...")
@@ -294,10 +299,10 @@ def seed_pgvector(df: pl.DataFrame, env: dict, batch_size: int = 1000):
     import numpy as np
     for i in tqdm(range(0, total, batch_size), desc="pgvector"):
         batch = df.slice(i, batch_size)
-        with cur.copy("COPY logs (id, timestamp, service, level, message, embedding) FROM STDIN") as copy:
+        async with cur.copy("COPY logs (id, timestamp, service, level, message, embedding) FROM STDIN") as copy:
             for row in batch.iter_rows(named=True):
                 emb = np.array(row["embedding"], dtype=np.float32)
-                copy.write_row((
+                await copy.write_row((
                     row["id"],
                     row["timestamp"].isoformat(),
                     row["service"],
@@ -305,48 +310,15 @@ def seed_pgvector(df: pl.DataFrame, env: dict, batch_size: int = 1000):
                     row["message"],
                     emb,
                 ))
-        conn.commit()
+        await conn.commit()
 
     elapsed = time.time() - t0
     print(f"  pgvector: {total:,} records in {elapsed:.1f}s ({total/elapsed:.0f} records/s)")
-    cur.close()
-    conn.close()
+    await cur.close()
+    await conn.close()
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Seed backends from pre-embedded parquet dataset")
-    parser.add_argument(
-        "parquet",
-        help="Path to parquet file or directory of parquet chunks")
-    parser.add_argument(
-        "--backend",
-        choices=["qdrant", "elasticsearch", "opensearch", "pgvector"],
-        action="append", help="Backends to seed (default: all configured in .env)"
-    )
-    parser.add_argument(
-        "--limit",
-        type=int,
-        help="Max records to load"
-    )
-    parser.add_argument(
-        "--batch-size",
-        type=int,
-        default=1000,
-        help="Batch size for bulk ops"
-    )
-    parser.add_argument(
-        "--index-mode",
-        default="keyword",
-        choices=["vector", "keyword", "hybrid"],
-        help="Index mode (default: keyword)"
-    )
-    parser.add_argument(
-        "--env",
-        default=".env",
-        help="Path to .env file"
-    )
-    args = parser.parse_args()
-
+async def async_main(args):
     env = load_env(args.env)
 
     parquet_path = Path(args.parquet)
@@ -383,20 +355,68 @@ def main():
         "pgvector": lambda: seed_pgvector(df, env, args.batch_size),
     }
 
+    # run all backends concurrently
+    coros = [_timed(backend, seed_fns[backend]()) for backend in backends]
+
     timings = {}
-    for backend in backends:
-        t0 = time.time()
-        try:
-            seed_fns[backend]()
-        except Exception as e:
-            print(f"  {backend}: FAILED ({e})", file=sys.stderr)
-        timings[backend] = time.time() - t0
+    results = await asyncio.gather(*coros, return_exceptions=True)
+
+    for name, result in zip(backends, results):
+        if isinstance(result, Exception):
+            print(f"  {name}: FAILED ({result})", file=sys.stderr)
+            timings[name] = 0
+        else:
+            timings[name] = result
 
     print("\n--- Seeding summary ---")
-    for backend, elapsed in timings.items():
+    for backend in backends:
+        elapsed = timings.get(backend, 0)
         print(f"  {backend}: {elapsed:.1f}s")
-    print(f"  total: {sum(timings.values()):.1f}s")
+    print(f"  total wall-clock: {sum(timings.values()):.1f}s")
     print("\nDone. Let databases settle for a few seconds before running bench.py")
+
+
+async def _timed(name: str, coro) -> float:
+    t0 = time.time()
+    await coro
+    return time.time() - t0
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Seed backends from pre-embedded parquet dataset")
+    parser.add_argument(
+        "parquet",
+        help="Path to parquet file or directory of parquet chunks")
+    parser.add_argument(
+        "--backend",
+        choices=["qdrant", "elasticsearch", "opensearch", "pgvector"],
+        action="append", help="Backends to seed (default: all configured in .env)"
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        help="Max records to load"
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=1000,
+        help="Batch size for bulk ops"
+    )
+    parser.add_argument(
+        "--index-mode",
+        default="keyword",
+        choices=["vector", "keyword", "hybrid"],
+        help="Index mode (default: keyword)"
+    )
+    parser.add_argument(
+        "--env",
+        default=".env",
+        help="Path to .env file"
+    )
+    args = parser.parse_args()
+
+    asyncio.run(async_main(args))
 
 
 if __name__ == "__main__":
