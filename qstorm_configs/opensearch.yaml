@@ -13,7 +13,7 @@ provider:
   vector_field: "dense"
 
 benchmark:
-  mode:   # "vector" | "keyword" | "hybrid"
+  mode: hybrid   # "vector" | "keyword" | "hybrid"
   warmup_iterations: 10
   burst_size: 100
   concurrency: 10

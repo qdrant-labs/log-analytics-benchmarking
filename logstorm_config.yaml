@@ -14,18 +14,25 @@ sinks:
     url: "${QDRANT_URL}"
     api_key: "${QDRANT_API_KEY}"
     collection_name: logs
-    index_mode: keyword
+    index_mode: hybrid
   - type: elasticsearch
     url: "${ELASTIC_URL}"
     user: "${ELASTIC_USER}"
     password: "${ELASTIC_PASSWORD}"
     index_name: logs
-    index_mode: keyword
-  - type: pgvector
-    host: "${PGVECTOR_HOST}"
-    user: "${PGVECTOR_USER}"
-    password: "${PGVECTOR_PASSWORD}"
-    table_name: logs
+    index_mode: hybrid
+  - type: opensearch
+    url: "${OPENSEARCH_URL}"
+    user: "${OPENSEARCH_USER}"
+    password: "${OPENSEARCH_PASSWORD}"
+    index_name: logs
+    index_mode: hybrid
+    skip_cert: true
+  # - type: pgvector
+  #   host: "${PGVECTOR_HOST}"
+  #   user: "${PGVECTOR_USER}"
+  #   password: "${PGVECTOR_PASSWORD}"
+  #   table_name: logs
   - type: dashboard
     port: 3000
 

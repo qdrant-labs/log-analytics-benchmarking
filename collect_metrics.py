@@ -103,7 +103,8 @@ def main():
     for name, env_key in [("qdrant", "QDRANT_INSTANCE_ID"),
                            ("elasticsearch", "ELASTIC_INSTANCE_ID"),
                            ("opensearch", "OPENSEARCH_INSTANCE_ID"),
-                           ("pgvector", "PGVECTOR_INSTANCE_ID")]:
+                           # ("pgvector", "PGVECTOR_INSTANCE_ID")
+                           ]:
         iid = env.get(env_key, os.environ.get(env_key, ""))
         if iid:
             instances[name] = iid

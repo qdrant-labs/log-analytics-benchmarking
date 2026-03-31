@@ -405,7 +405,7 @@ def main():
     )
     parser.add_argument(
         "--index-mode",
-        default="keyword",
+        default="hybrid",
         choices=["vector", "keyword", "hybrid"],
         help="Index mode (default: keyword)"
     )

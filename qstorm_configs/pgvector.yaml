@@ -9,7 +9,7 @@ provider:
   text_field: "message"    # Text column for hybrid search (tsvector full-text)
 
 benchmark:
-  mode: vector  # "vector", "sparse", or "hybrid"
+  mode: hybrid  # "vector", "sparse", or "hybrid"
   warmup_iterations: 10
   burst_size: 100
   concurrency: 10

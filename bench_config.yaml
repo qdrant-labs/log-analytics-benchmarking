@@ -19,9 +19,9 @@ backends:
   elasticsearch:
     config: "elastic.yaml"
     queries: "queries.yaml"
-  pgvector:
-    config: "pgvector.yaml"
-    queries: "queries.yaml"
+  # pgvector:
+  #   config: "pgvector.yaml"
+  #   queries: "queries.yaml"
   opensearch:
     config: "opensearch.yaml"
     queries: "queries.yaml"

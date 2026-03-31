@@ -9,11 +9,11 @@ provider:
     type: basic
     username: "elastic"
     password: "changeme"
-  # vector_field: "dense"   # dense_vector field name
+  vector_field: "dense"   # dense_vector field name
   text_field: "message"   # text field for BM25 (used in hybrid mode)
 
 benchmark:
-  mode: keyword              # "vector" | "keyword" | "hybrid"
+  mode: hybrid              # "vector" | "keyword" | "hybrid"
   warmup_iterations: 10      # Queries before measuring
   burst_size: 100            # Queries per burst
   concurrency: 10            # Max concurrent requests

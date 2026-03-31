@@ -44,7 +44,7 @@ class BenchConfig:
     backends: dict = field(default_factory=lambda: {
         "qdrant": {"config": "qdrant.yaml", "queries": "queries.yaml"},
         "elasticsearch": {"config": "elastic.yaml", "queries": "queries.yaml"},
-        "pgvector": {"config": "pgvector.yaml", "queries": "queries.yaml"},
+        # "pgvector": {"config": "pgvector.yaml", "queries": "queries.yaml"},
         "opensearch": {"config": "opensearch.yaml", "queries": "queries.yaml"},
     })
 
