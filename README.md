@@ -67,7 +67,7 @@ Each database backend runs on its own dedicated EC2 instance (`m6i.large` by def
 # import your SSH public key to AWS (one-time setup)
 aws ec2 import-key-pair \
   --key-name bench-key \
-  --public-key-material fileb://~/.ssh/id_ed25519.pub \
+  --public-key-material fileb://~/.ssh/bench-key.pub \
   --region us-east-1
 
 # spin up the backends
@@ -125,10 +125,9 @@ terraform destroy
 | `key_pair_name` | `""` | Key pair for SSH access (optional) |
 
 ```bash
-# example: only launch qdrant and elasticsearch, in us-west-2
+# example: only launch qdrant, elasticsearch, and opensearch
 terraform apply \
-  -var='backends=["qdrant","elasticsearch"]' \
-  -var="aws_region=us-west-2" \
+  -var='backends=["qdrant","elasticsearch", "opensearch"]' \
   -var="key_pair_name=bench-key"
 ```
 
@@ -137,7 +136,7 @@ terraform apply \
 All benchmark settings live in `bench_config.yaml`:
 
 ```yaml
-index_mode: hybrid  # "vector" | "keyword" | "hybrid" — single source of truth
+index_mode: hybrid  # "vector" | "keyword" | "hybrid"
 
 backends:
   - qdrant

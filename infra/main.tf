@@ -146,7 +146,9 @@ resource "aws_security_group" "bench" {
 }
 
 # iam role — allows instances to push CloudWatch metrics
+# requires iam:CreateRole permission; set enable_cloudwatch = true to create
 resource "aws_iam_role" "bench_instance" {
+  count       = var.enable_cloudwatch ? 1 : 0
   name_prefix = "bench-instance-"
   tags        = local.tags
 
@@ -161,13 +163,15 @@ resource "aws_iam_role" "bench_instance" {
 }
 
 resource "aws_iam_role_policy_attachment" "cw_agent" {
-  role       = aws_iam_role.bench_instance.name
+  count      = var.enable_cloudwatch ? 1 : 0
+  role       = aws_iam_role.bench_instance[0].name
   policy_arn = "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
 }
 
 resource "aws_iam_instance_profile" "bench_instance" {
+  count       = var.enable_cloudwatch ? 1 : 0
   name_prefix = "bench-instance-"
-  role        = aws_iam_role.bench_instance.name
+  role        = aws_iam_role.bench_instance[0].name
 }
 
 # ec2 instances
@@ -178,10 +182,15 @@ resource "aws_instance" "qdrant" {
   instance_type               = var.instance_type
   subnet_id                   = aws_subnet.bench.id
   vpc_security_group_ids      = [aws_security_group.bench.id]
-  iam_instance_profile        = aws_iam_instance_profile.bench_instance.name
+  iam_instance_profile        = var.enable_cloudwatch ? aws_iam_instance_profile.bench_instance[0].name : null
   associate_public_ip_address = true
   monitoring                  = true
   key_name                    = var.key_pair_name != "" ? var.key_pair_name : null
+
+  root_block_device {
+    volume_size = var.volume_size
+    volume_type = "gp3"
+  }
 
   user_data = file("${path.module}/user_data/qdrant.sh")
 
@@ -195,10 +204,15 @@ resource "aws_instance" "elasticsearch" {
   instance_type               = var.instance_type
   subnet_id                   = aws_subnet.bench.id
   vpc_security_group_ids      = [aws_security_group.bench.id]
-  iam_instance_profile        = aws_iam_instance_profile.bench_instance.name
+  iam_instance_profile        = var.enable_cloudwatch ? aws_iam_instance_profile.bench_instance[0].name : null
   associate_public_ip_address = true
   monitoring                  = true
   key_name                    = var.key_pair_name != "" ? var.key_pair_name : null
+
+  root_block_device {
+    volume_size = var.volume_size
+    volume_type = "gp3"
+  }
 
   user_data = templatefile("${path.module}/user_data/elasticsearch.sh", {
     es_password = var.es_password
@@ -214,10 +228,15 @@ resource "aws_instance" "pgvector" {
   instance_type               = var.instance_type
   subnet_id                   = aws_subnet.bench.id
   vpc_security_group_ids      = [aws_security_group.bench.id]
-  iam_instance_profile        = aws_iam_instance_profile.bench_instance.name
+  iam_instance_profile        = var.enable_cloudwatch ? aws_iam_instance_profile.bench_instance[0].name : null
   associate_public_ip_address = true
   monitoring                  = true
   key_name                    = var.key_pair_name != "" ? var.key_pair_name : null
+
+  root_block_device {
+    volume_size = var.volume_size
+    volume_type = "gp3"
+  }
 
   user_data = templatefile("${path.module}/user_data/pgvector.sh", {
     pg_password = var.pg_password
@@ -233,10 +252,15 @@ resource "aws_instance" "opensearch" {
   instance_type               = var.instance_type
   subnet_id                   = aws_subnet.bench.id
   vpc_security_group_ids      = [aws_security_group.bench.id]
-  iam_instance_profile        = aws_iam_instance_profile.bench_instance.name
+  iam_instance_profile        = var.enable_cloudwatch ? aws_iam_instance_profile.bench_instance[0].name : null
   associate_public_ip_address = true
   monitoring                  = true
   key_name                    = var.key_pair_name != "" ? var.key_pair_name : null
+
+  root_block_device {
+    volume_size = var.volume_size
+    volume_type = "gp3"
+  }
 
   user_data = templatefile("${path.module}/user_data/opensearch.sh", {
     opensearch_password = var.opensearch_password

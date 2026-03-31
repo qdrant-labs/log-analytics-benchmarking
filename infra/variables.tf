@@ -47,3 +47,15 @@ variable "key_pair_name" {
   type        = string
   default     = ""
 }
+
+variable "enable_cloudwatch" {
+  description = "Create IAM role for CloudWatch agent (requires iam:CreateRole permission)"
+  type        = bool
+  default     = false
+}
+
+variable "volume_size" {
+  description = "Root EBS volume size in GiB"
+  type        = number
+  default     = 30
+}

@@ -59,7 +59,7 @@ class OpenSearchBackend(Backend):
                 "method": {
                     "name": "hnsw",
                     "space_type": "cosinesimil",
-                    "engine": "nmslib",
+                    "engine": "lucene",
                 },
             }
             settings["index"] = {"knn": True}

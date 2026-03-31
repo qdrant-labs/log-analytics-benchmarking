@@ -5,7 +5,6 @@ import urllib.request
 from typing import Any
 
 import polars as pl
-from tqdm import tqdm
 
 from .base import Backend
 
@@ -34,7 +33,7 @@ class ElasticsearchBackend(Backend):
     async def seed(self, df: pl.DataFrame, index_mode: str, batch_size: int = 1000) -> None:
         from elasticsearch import AsyncElasticsearch, helpers
 
-        client = AsyncElasticsearch(self._url, basic_auth=(self._user, self._password))
+        client = AsyncElasticsearch(self._url, basic_auth=(self._user, self._password), request_timeout=120)
         index = "logs"
 
         properties: dict[str, Any] = {
