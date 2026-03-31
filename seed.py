@@ -376,17 +376,27 @@ def main():
             # fallback to local defaults
             backends = ["qdrant", "elasticsearch"]
 
-    for backend in backends:
-        # if backend == "qdrant":
-        #     seed_qdrant(df, env, args.batch_size, args.index_mode)
-        # elif backend == "elasticsearch":
-        #     seed_elasticsearch(df, env, args.batch_size, args.index_mode)
-        # if backend == "opensearch":
-        #     seed_opensearch(df, env, args.batch_size, args.index_mode)
-        if backend == "pgvector":
-            seed_pgvector(df, env, args.batch_size)
+    seed_fns = {
+        "qdrant": lambda: seed_qdrant(df, env, args.batch_size, args.index_mode),
+        "elasticsearch": lambda: seed_elasticsearch(df, env, args.batch_size, args.index_mode),
+        "opensearch": lambda: seed_opensearch(df, env, args.batch_size, args.index_mode),
+        "pgvector": lambda: seed_pgvector(df, env, args.batch_size),
+    }
 
-    print("\nDone. Let databases settle for a few seconds before running bench.py --skip-load")
+    timings = {}
+    for backend in backends:
+        t0 = time.time()
+        try:
+            seed_fns[backend]()
+        except Exception as e:
+            print(f"  {backend}: FAILED ({e})", file=sys.stderr)
+        timings[backend] = time.time() - t0
+
+    print("\n--- Seeding summary ---")
+    for backend, elapsed in timings.items():
+        print(f"  {backend}: {elapsed:.1f}s")
+    print(f"  total: {sum(timings.values()):.1f}s")
+    print("\nDone. Let databases settle for a few seconds before running bench.py")
 
 
 if __name__ == "__main__":

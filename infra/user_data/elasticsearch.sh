@@ -17,7 +17,7 @@ docker run -d --name elasticsearch --restart always \
   -e xpack.security.http.ssl.enabled=false \
   -e xpack.license.self_generated.type=trial \
   -e xpack.ml.use_auto_machine_memory_percent=true \
-  -e "ES_JAVA_OPTS=-Xms4g -Xmx4g" \
+  -e "ES_JAVA_OPTS=-Xms2g -Xmx2g" \
   --ulimit memlock=-1:-1 \
   docker.elastic.co/elasticsearch/elasticsearch:9.0.0
 

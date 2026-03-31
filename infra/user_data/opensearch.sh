@@ -10,7 +10,7 @@ docker run -d --name opensearch --restart always \
   -e discovery.type=single-node \
   -e OPENSEARCH_INITIAL_ADMIN_PASSWORD=${opensearch_password} \
   -e DISABLE_SECURITY_PLUGIN=true \
-  -e "OPENSEARCH_JAVA_OPTS=-Xms4g -Xmx4g" \
+  -e "OPENSEARCH_JAVA_OPTS=-Xms2g -Xmx2g" \
   opensearchproject/opensearch:latest
 
 # CloudWatch agent for memory metrics

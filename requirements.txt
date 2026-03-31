@@ -3,3 +3,10 @@ polars
 matplotlib
 plotly
 kaleido
+
+# providers
+elasticsearch
+opensearch-py
+psycopg[binary]
+pgvector
+qdrant-client

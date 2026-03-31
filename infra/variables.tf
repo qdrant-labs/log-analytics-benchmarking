@@ -5,9 +5,9 @@ variable "aws_region" {
 }
 
 variable "instance_type" {
-  description = "EC2 instance type for each backend (4 vCPU / 16 GiB recommended)"
+  description = "EC2 instance type for each backend (2 vCPU / 8 GiB)"
   type        = string
-  default     = "m6i.xlarge"
+  default     = "m6i.large"
 }
 
 variable "backends" {
