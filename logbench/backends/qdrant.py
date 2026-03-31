@@ -1,5 +1,6 @@
 import time
 import urllib.request
+
 from typing import Any
 
 import polars as pl

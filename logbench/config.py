@@ -6,7 +6,9 @@ import yaml
 
 
 def load_env(env_path: str = ".env") -> dict[str, str]:
-    """Load environment variables, overlaying values from a .env file."""
+    """
+    Load environment variables, overlaying values from a .env file.
+    """
     env = os.environ.copy()
     path = Path(env_path)
     if path.exists():

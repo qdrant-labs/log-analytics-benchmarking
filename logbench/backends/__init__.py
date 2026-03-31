@@ -13,12 +13,16 @@ REGISTRY: dict[str, type[Backend]] = {
 
 
 def get_backend(name: str, env: dict[str, str]) -> Backend:
-    """Instantiate a single backend by name."""
+    """
+    Instantiate a single backend by name.
+    """
     return REGISTRY[name].from_env(env)
 
 
 def get_backends(names: list[str], env: dict[str, str]) -> list[Backend]:
-    """Instantiate multiple backends by name."""
+    """
+    Instantiate multiple backends by name.
+    """
     return [get_backend(n, env) for n in names]
 
 
