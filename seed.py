@@ -262,13 +262,13 @@ def seed_opensearch(df: pl.DataFrame, env: dict, batch_size: int = 1000,
 
 
 def seed_pgvector(df: pl.DataFrame, env: dict, batch_size: int = 1000):
-    import psycopg2
-    from pgvector.psycopg2 import register_vector
+    import psycopg
+    from pgvector.psycopg import register_vector
 
     host = env.get("PGVECTOR_HOST", "localhost")
     user = env.get("PGVECTOR_USER", "postgres")
     password = env.get("PGVECTOR_PASSWORD", "changeme")
-    conn = psycopg2.connect(host=host, user=user, password=password, dbname="logs", port=5432)
+    conn = psycopg.connect(host=host, user=user, password=password, dbname="logs", port=5432)
     register_vector(conn)
     cur = conn.cursor()
 
@@ -294,20 +294,17 @@ def seed_pgvector(df: pl.DataFrame, env: dict, batch_size: int = 1000):
     import numpy as np
     for i in tqdm(range(0, total, batch_size), desc="pgvector"):
         batch = df.slice(i, batch_size)
-        values = []
-        for row in batch.iter_rows(named=True):
-            values.append((
-                row["id"],
-                row["timestamp"].isoformat(),
-                row["service"],
-                row["level"],
-                row["message"],
-                np.array(row["embedding"], dtype=np.float32),
-            ))
-        args_str = ",".join(
-            cur.mogrify("(%s, %s, %s, %s, %s, %s)", v).decode() for v in values
-        )
-        cur.execute(f"INSERT INTO logs (id, timestamp, service, level, message, embedding) VALUES {args_str}")
+        with cur.copy("COPY logs (id, timestamp, service, level, message, embedding) FROM STDIN") as copy:
+            for row in batch.iter_rows(named=True):
+                emb = np.array(row["embedding"], dtype=np.float32)
+                copy.write_row((
+                    row["id"],
+                    row["timestamp"].isoformat(),
+                    row["service"],
+                    row["level"],
+                    row["message"],
+                    emb,
+                ))
         conn.commit()
 
     elapsed = time.time() - t0
@@ -320,7 +317,7 @@ def main():
     parser = argparse.ArgumentParser(description="Seed backends from pre-embedded parquet dataset")
     parser.add_argument(
         "parquet",
-        help="Path to parquet file")
+        help="Path to parquet file or directory of parquet chunks")
     parser.add_argument(
         "--backend",
         choices=["qdrant", "elasticsearch", "opensearch", "pgvector"],
@@ -352,8 +349,13 @@ def main():
 
     env = load_env(args.env)
 
-    print(f"Loading {args.parquet}...")
-    df = pl.read_parquet(args.parquet)
+    parquet_path = Path(args.parquet)
+    if parquet_path.is_dir():
+        print(f"Loading chunks from {parquet_path}/...")
+        df = pl.read_parquet(parquet_path / "*.parquet")
+    else:
+        print(f"Loading {parquet_path}...")
+        df = pl.read_parquet(parquet_path)
     if args.limit:
         df = df.head(args.limit)
     print(f"  {len(df):,} records, {len(df['embedding'][0])}-dim embeddings")
@@ -375,13 +377,13 @@ def main():
             backends = ["qdrant", "elasticsearch"]
 
     for backend in backends:
-        if backend == "qdrant":
-            seed_qdrant(df, env, args.batch_size, args.index_mode)
-        elif backend == "elasticsearch":
-            seed_elasticsearch(df, env, args.batch_size, args.index_mode)
-        elif backend == "opensearch":
-            seed_opensearch(df, env, args.batch_size, args.index_mode)
-        elif backend == "pgvector":
+        # if backend == "qdrant":
+        #     seed_qdrant(df, env, args.batch_size, args.index_mode)
+        # elif backend == "elasticsearch":
+        #     seed_elasticsearch(df, env, args.batch_size, args.index_mode)
+        # if backend == "opensearch":
+        #     seed_opensearch(df, env, args.batch_size, args.index_mode)
+        if backend == "pgvector":
             seed_pgvector(df, env, args.batch_size)
 
     print("\nDone. Let databases settle for a few seconds before running bench.py --skip-load")

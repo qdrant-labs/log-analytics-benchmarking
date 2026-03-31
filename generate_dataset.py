@@ -144,7 +144,7 @@ def jitter_embedding(
 
 def main():
     parser = argparse.ArgumentParser(description="Generate pre-embedded log dataset")
-    parser.add_argument("-o", "--output", default="logs-1m.parquet", help="Output parquet path")
+    parser.add_argument("-o", "--output", default="logs-1m", help="Output directory for parquet chunks")
     parser.add_argument("-n", "--count", type=int, default=1_000_000, help="Number of log entries")
     parser.add_argument("--pool-size", type=int, default=50_000, help="Unique message pool size")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
@@ -210,17 +210,15 @@ def main():
         }).write_parquet(chunk_path)
         chunk_files.append(chunk_path)
 
-    # 4. merge chunks into final parquet
-    print(f"Merging {len(chunk_files)} chunks into {args.output}...")
-    pl.scan_parquet(tmp_dir / "*.parquet").sink_parquet(args.output)
+    # 4. rename tmp dir to final output path
+    output_path = Path(args.output)
+    if output_path.exists():
+        import shutil
+        shutil.rmtree(output_path)
+    tmp_dir.rename(output_path)
 
-    # cleanup temp files
-    for f in chunk_files:
-        f.unlink()
-    tmp_dir.rmdir()
-
-    file_size_mb = Path(args.output).stat().st_size / (1024 * 1024)
-    print(f"Done: {args.output} ({file_size_mb:.0f} MB, {args.count:,} rows)")
+    total_size_mb = sum(f.stat().st_size for f in output_path.glob("*.parquet")) / (1024 * 1024)
+    print(f"Done: {output_path}/ ({len(chunk_files)} chunks, {total_size_mb:.0f} MB, {args.count:,} rows)")
 
 
 if __name__ == "__main__":

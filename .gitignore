@@ -8,3 +8,5 @@ infra/.terraform/
 infra/.terraform.lock.hcl
 infra/*.tfstate
 infra/*.tfstate.backup
+
+.tmp_chunks/
