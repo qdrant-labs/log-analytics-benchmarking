@@ -1,9 +1,8 @@
 """
-Benchmark runner for es-qdrant-log-demo.
+Benchmark runner for log-analytics-benchmarking.
 
-Orchestrates the emitter and qstorm tools to measure Elasticsearch and Qdrant
-query latency under write load across three phases: steady-state, heavy-write,
-and recovery.
+Orchestrates logstorm and qstorm to measure query latency under write load
+across three phases: steady-state, heavy-write, and recovery.
 
 Usage:
     python bench.py                          # run with default config
@@ -21,7 +20,6 @@ import platform
 import signal
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 
@@ -30,46 +28,21 @@ from pathlib import Path
 
 import yaml
 
+from logbench import BenchConfig, get_backends, load_env
+from logbench.generators import generate_qstorm_config, generate_logstorm_config
+
 log = logging.getLogger("bench")
 
-@dataclass
-class BenchConfig:
-    pre_seed_logs: int = 100_000
-    steady_state_secs: int = 60
-    heavy_write_secs: int = 120
-    recovery_secs: int = 60
-    logstorm_config: str = "./logstorm_config.yaml"
-    qstorm_configs_dir: str = "./qstorm_configs"
-    results_dir: str = "./results"
-    backends: dict = field(default_factory=lambda: {
-        "qdrant": {"config": "qdrant.yaml", "queries": "queries.yaml"},
-        "elasticsearch": {"config": "elastic.yaml", "queries": "queries.yaml"},
-        # "pgvector": {"config": "pgvector.yaml", "queries": "queries.yaml"},
-        "opensearch": {"config": "opensearch.yaml", "queries": "queries.yaml"},
-    })
 
-    @classmethod
-    def from_yaml(cls, path: str) -> "BenchConfig":
-        with open(path) as f:
-            data = yaml.safe_load(f)
-        return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
-
-
-def compute_seed_duration(logstorm_config: str, target_logs: int) -> int:
-    """
-    Read logstorm config and compute how long to run to produce ~target_logs.
-    """
-    config_path = Path(logstorm_config)
-    with open(config_path) as f:
-        raw = f.read()
-    # crude parse — env vars won't affect rates, which are plain numbers
-    cfg = yaml.safe_load(raw)
+def compute_seed_duration(logstorm_base: str, target_logs: int) -> int:
+    """Compute how long to run logstorm to produce ~target_logs."""
+    with open(logstorm_base) as f:
+        cfg = yaml.safe_load(f)
     total_rate = sum(s["rate_per_sec"] for s in cfg.get("services", []))
     if total_rate <= 0:
         log.warning("Could not determine log rate, defaulting to 60s seed")
         return 60
-    secs = math.ceil(target_logs / total_rate) + 5  # +5s buffer for final flush
-    return secs
+    return math.ceil(target_logs / total_rate) + 5
 
 
 @dataclass
@@ -85,7 +58,7 @@ class RunMetadata:
     t_seed_done: str = ""
     t_qstorm_start: str = ""
     t_steady_end: str = ""
-    t_heavy_start: str = ""      # actual write start (after embedding)
+    t_heavy_start: str = ""
     t_heavy_end: str = ""
     t_recovery_end: str = ""
     t_end: str = ""
@@ -99,84 +72,17 @@ def now_iso() -> str:
 _active_procs: list[subprocess.Popen] = []
 
 
-def _make_env() -> dict:
-    """
-    Build subprocess environment: inherit current env + source .env file.
-    """
-    env = os.environ.copy()
-    env_file = Path(".env")
-    if env_file.exists():
-        for line in env_file.read_text().splitlines():
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            if line.startswith("export "):
-                line = line[7:]
-            key, _, value = line.partition("=")
-            env[key.strip()] = value.strip()
-    return env
-
-
-def _render_qstorm_config(config_path: Path, env: dict) -> Path:
-    """
-    Override provider URLs in a qstorm config from environment variables.
-
-    If no relevant env vars are set, returns the original path unchanged.
-    Otherwise writes a modified copy to a temp directory and returns that path.
-    """
-    cfg = yaml.safe_load(config_path.read_text())
-    provider_type = cfg.get("provider", {}).get("type", "")
-    modified = False
-
-    if provider_type == "elasticsearch" and env.get("ELASTIC_URL"):
-        cfg["provider"]["url"] = env["ELASTIC_URL"]
-        if "credentials" not in cfg["provider"]:
-            cfg["provider"]["credentials"] = {"type": "basic"}
-        cfg["provider"]["credentials"]["username"] = env.get("ELASTIC_USER", "elastic")
-        cfg["provider"]["credentials"]["password"] = env.get("ELASTIC_PASSWORD", "changeme")
-        modified = True
-    elif provider_type == "qdrant" and env.get("QDRANT_URL"):
-        url = env["QDRANT_URL"]
-        # qstorm uses gRPC (6334), QDRANT_URL may point to REST (6333)
-        cfg["provider"]["url"] = url.replace(":6333", ":6334")
-        modified = True
-    elif provider_type == "opensearch" and env.get("OPENSEARCH_URL"):
-        cfg["provider"]["url"] = env["OPENSEARCH_URL"]
-        if "credentials" not in cfg["provider"]:
-            cfg["provider"]["credentials"] = {"type": "basic"}
-        cfg["provider"]["credentials"]["username"] = env.get("OPENSEARCH_USER", "admin")
-        cfg["provider"]["credentials"]["password"] = env.get("OPENSEARCH_PASSWORD", "Changeme1!")
-        modified = True
-    elif provider_type == "pgvector" and env.get("PGVECTOR_HOST"):
-        user = env.get("PGVECTOR_USER", "postgres")
-        pw = env.get("PGVECTOR_PASSWORD", "changeme")
-        host = env["PGVECTOR_HOST"]
-        cfg["provider"]["url"] = f"postgresql://{user}:{pw}@{host}:5432/logs"
-        modified = True
-
-    if not modified:
-        return config_path
-
-    tmp_dir = Path(tempfile.mkdtemp(prefix="qstorm_"))
-    tmp_path = tmp_dir / config_path.name
-    with open(tmp_path, "w") as f:
-        yaml.dump(cfg, f, default_flow_style=False)
-    log.info("Rendered qstorm config %s → %s", config_path.name, tmp_path)
-    return tmp_path
-
-
 class _StderrWatcher:
     """
     Drains process stderr in a background thread, recording a timestamp
-    when a marker string appears.  Takes ownership of proc.stderr so that
-    wait_for_emitter (which checks ``proc.stderr``) won't conflict.
+    when a marker string appears.
     """
 
     def __init__(self, proc: subprocess.Popen, marker: str):
         self.marker_time: str | None = None
         self._lines: list[str] = []
         stream = proc.stderr
-        proc.stderr = None  # prevent double-read in wait_for_emitter
+        proc.stderr = None
         self._thread = threading.Thread(
             target=self._drain, args=(stream, marker), daemon=True,
         )
@@ -198,31 +104,21 @@ class _StderrWatcher:
         return "".join(self._lines)
 
 
-def start_emitter(config: BenchConfig, duration_secs: int, env: dict) -> subprocess.Popen:
-    """
-    Start the logstorm process with a specific duration.
-    """
-    logstorm_config = Path(config.logstorm_config).resolve()
+def start_emitter(logstorm_config_path: Path, duration_secs: int, env: dict) -> subprocess.Popen:
+    """Start the logstorm process with a specific duration."""
     cmd = [
         "logstorm",
-        "-c", str(logstorm_config),
+        "-c", str(logstorm_config_path),
         "--duration-secs", str(duration_secs),
     ]
     log.info("Starting logstorm (duration=%ds): %s", duration_secs, " ".join(cmd))
-    proc = subprocess.Popen(
-        cmd,
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
+    proc = subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     _active_procs.append(proc)
     return proc
 
 
 def wait_for_emitter(proc: subprocess.Popen, label: str, timeout: int) -> None:
-    """
-    Wait for emitter to finish with a timeout.
-    """
+    """Wait for emitter to finish with a timeout."""
     log.info("Waiting for emitter [%s] to finish (timeout=%ds)...", label, timeout)
     try:
         proc.wait(timeout=timeout)
@@ -243,20 +139,10 @@ def wait_for_emitter(proc: subprocess.Popen, label: str, timeout: int) -> None:
             _active_procs.remove(proc)
 
 
-def start_qstorm(
-    config: BenchConfig,
-    backend_name: str,
-    output_file: Path,
-    env: dict,
-) -> subprocess.Popen:
-    """
-    Start a qstorm process in headless mode, writing JSONL to output_file.
-    """
-    configs_dir = Path(config.qstorm_configs_dir).resolve()
-    backend_cfg = config.backends[backend_name]
-    raw_config_path = configs_dir / backend_cfg["config"]
-    config_path = str(_render_qstorm_config(raw_config_path, env))
-    queries_path = str(configs_dir / backend_cfg["queries"])
+def start_qstorm(backend, config: BenchConfig, output_file: Path, env: dict) -> subprocess.Popen:
+    """Start a qstorm process in headless mode, writing JSONL to output_file."""
+    config_path = str(generate_qstorm_config(backend, config))
+    queries_path = str(Path(config.qstorm["queries_file"]).resolve())
 
     cmd = [
         "qstorm",
@@ -266,7 +152,7 @@ def start_qstorm(
         "--output", "json",
         "--bursts", "0",
     ]
-    log.info("Starting qstorm [%s]: %s → %s", backend_name, " ".join(cmd), output_file)
+    log.info("Starting qstorm [%s]: %s → %s", backend.name, " ".join(cmd), output_file)
     fh = open(output_file, "w")
     proc = subprocess.Popen(cmd, stdout=fh, stderr=subprocess.PIPE, env=env)
     proc._output_fh = fh  # type: ignore[attr-defined]
@@ -275,9 +161,7 @@ def start_qstorm(
 
 
 def stop_qstorm(proc: subprocess.Popen, backend_name: str) -> None:
-    """
-    Gracefully stop a qstorm process.
-    """
+    """Gracefully stop a qstorm process."""
     log.info("Stopping qstorm [%s] (pid=%d)...", backend_name, proc.pid)
     proc.terminate()
     try:
@@ -300,64 +184,22 @@ def stop_qstorm(proc: subprocess.Popen, backend_name: str) -> None:
             _active_procs.remove(proc)
 
 
-def check_services_healthy(env: dict) -> bool:
-    """
-    Quick health check that backends are reachable.
-    Reads connection URLs from env with localhost fallbacks.
-    """
-    import urllib.request
-    import base64
-    import socket
-
-    qdrant_base = env.get("QDRANT_URL", "http://localhost:6333").rstrip("/")
-    # Health endpoint is on REST port (6333), not gRPC (6334)
-    qdrant_health = qdrant_base.replace(":6334", ":6333") + "/healthz"
-
-    elastic_base = env.get("ELASTIC_URL", "http://localhost:9200").rstrip("/")
-    elastic_user = env.get("ELASTIC_USER", "elastic")
-    elastic_pass = env.get("ELASTIC_PASSWORD", "changeme")
-
-    opensearch_base = env.get("OPENSEARCH_URL", "http://localhost:9202").rstrip("/")
-    opensearch_user = env.get("OPENSEARCH_USER", "admin")
-    opensearch_pass = env.get("OPENSEARCH_PASSWORD", "Changeme1!")
-
-    checks = {
-        "Qdrant": (qdrant_health, None),
-        "Elasticsearch": (
-            f"{elastic_base}/_cluster/health",
-            "Basic " + base64.b64encode(f"{elastic_user}:{elastic_pass}".encode()).decode(),
-        ),
-        "OpenSearch": (
-            f"{opensearch_base}/_cluster/health",
-            "Basic " + base64.b64encode(f"{opensearch_user}:{opensearch_pass}".encode()).decode(),
-        ),
-    }
+async def check_backends_healthy(backends) -> bool:
+    """Run health checks against all backends."""
     all_ok = True
-    for name, (url, auth) in checks.items():
-        try:
-            req = urllib.request.Request(url)
-            if auth:
-                req.add_header("Authorization", auth)
-            resp = urllib.request.urlopen(req, timeout=10)
-            log.info("  %s: OK (%d)", name, resp.status)
-        except Exception as e:
-            log.error("  %s: FAILED (%s)", name, e)
+    for b in backends:
+        ok = await b.health_check()
+        if ok:
+            log.info("  %s: OK", b.name)
+        else:
+            log.error("  %s: FAILED", b.name)
             all_ok = False
-
-    # pgvector: TCP connect check
-    pg_host = env.get("PGVECTOR_HOST", "localhost")
-    try:
-        s = socket.create_connection((pg_host, 5432), timeout=5)
-        s.close()
-        log.info("  pgvector: OK")
-    except Exception as e:
-        log.error("  pgvector: FAILED (%s)", e)
-        all_ok = False
-
     return all_ok
 
 
 def run_benchmark(config: BenchConfig, skip_load: bool = False) -> None:
+    import asyncio
+
     run_name = datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
     out_dir = Path(config.results_dir).resolve() / run_name
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -365,16 +207,20 @@ def run_benchmark(config: BenchConfig, skip_load: bool = False) -> None:
     log.info("=" * 60)
     log.info("Benchmark run: %s", run_name)
     log.info("Output: %s", out_dir)
+    log.info("Index mode: %s", config.index_mode)
     log.info("=" * 60)
 
-    env = _make_env()
+    env = load_env()
+    backends = get_backends(config.backends, env)
 
-    # compute seed duration from logstorm config
-    seed_secs = compute_seed_duration(config.logstorm_config, config.pre_seed_logs)
-    emitter_cfg = yaml.safe_load(
-        Path(config.logstorm_config).read_text()
-    )
-    total_rate = sum(s["rate_per_sec"] for s in emitter_cfg.get("services", []))
+    # generate logstorm config
+    logstorm_config_path = generate_logstorm_config(backends, config)
+    log.info("Generated logstorm config: %s", logstorm_config_path)
+
+    # compute seed duration from logstorm base
+    seed_secs = compute_seed_duration(config.logstorm_base, config.pre_seed_logs)
+    base_cfg = yaml.safe_load(Path(config.logstorm_base).read_text())
+    total_rate = sum(s["rate_per_sec"] for s in base_cfg.get("services", []))
 
     metadata = RunMetadata(
         config=asdict(config),
@@ -388,7 +234,7 @@ def run_benchmark(config: BenchConfig, skip_load: bool = False) -> None:
 
     # --- Health check ---
     log.info("Checking service health...")
-    if not check_services_healthy(env):
+    if not asyncio.run(check_backends_healthy(backends)):
         log.error("Service health checks failed. Are backends running?")
         sys.exit(1)
 
@@ -402,7 +248,7 @@ def run_benchmark(config: BenchConfig, skip_load: bool = False) -> None:
             "Phase 0: Pre-seeding ~%d logs (%ds at ~%.0f logs/s)...",
             config.pre_seed_logs, seed_secs, total_rate,
         )
-        emitter_seed = start_emitter(config, seed_secs, env)
+        emitter_seed = start_emitter(logstorm_config_path, seed_secs, env)
         wait_for_emitter(emitter_seed, "pre-seed", timeout=seed_secs + 60)
         metadata.t_seed_done = now_iso()
 
@@ -412,9 +258,9 @@ def run_benchmark(config: BenchConfig, skip_load: bool = False) -> None:
     # --- Phase 1: Start qstorm ---
     log.info("Phase 1: Starting qstorm against all backends...")
     qstorm_procs = {}
-    for backend_name in config.backends:
-        output_file = out_dir / f"{backend_name}.jsonl"
-        qstorm_procs[backend_name] = start_qstorm(config, backend_name, output_file, env)
+    for backend in backends:
+        output_file = out_dir / f"{backend.name}.jsonl"
+        qstorm_procs[backend.name] = start_qstorm(backend, config, output_file, env)
     metadata.t_qstorm_start = now_iso()
 
     # --- Phase 2: Steady-state ---
@@ -425,7 +271,7 @@ def run_benchmark(config: BenchConfig, skip_load: bool = False) -> None:
 
     # --- Phase 3+4: Heavy write ---
     log.info("Phase 3: Starting heavy write load (%ds)...", config.heavy_write_secs)
-    emitter_heavy = start_emitter(config, config.heavy_write_secs, env)
+    emitter_heavy = start_emitter(logstorm_config_path, config.heavy_write_secs, env)
     watcher = _StderrWatcher(emitter_heavy, "Emitter running")
     log.info("Phase 4: Heavy write measurement in progress...")
     wait_for_emitter(emitter_heavy, "heavy-write", timeout=config.heavy_write_secs + 60)
@@ -445,8 +291,8 @@ def run_benchmark(config: BenchConfig, skip_load: bool = False) -> None:
 
     # --- Phase 7: Stop qstorm ---
     log.info("Phase 7: Stopping qstorm processes...")
-    for backend_name, proc in qstorm_procs.items():
-        stop_qstorm(proc, backend_name)
+    for name, proc in qstorm_procs.items():
+        stop_qstorm(proc, name)
     metadata.t_end = now_iso()
 
     # --- Write outputs ---
@@ -462,10 +308,10 @@ def run_benchmark(config: BenchConfig, skip_load: bool = False) -> None:
     log.info("=" * 60)
     log.info("Benchmark complete: %s", run_name)
     log.info("Results: %s", out_dir)
-    for backend_name in config.backends:
-        jsonl_path = out_dir / f"{backend_name}.jsonl"
+    for backend in backends:
+        jsonl_path = out_dir / f"{backend.name}.jsonl"
         lines = sum(1 for _ in open(jsonl_path)) if jsonl_path.exists() else 0
-        log.info("  %s: %d bursts recorded", backend_name, lines)
+        log.info("  %s: %d bursts recorded", backend.name, lines)
     log.info("=" * 60)
 
 
@@ -481,7 +327,7 @@ def cleanup_handler(signum, frame):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Benchmark runner for es-qdrant-log-demo",
+        description="Benchmark runner for log-analytics-benchmarking",
     )
     parser.add_argument(
         "-c", "--config",
@@ -512,15 +358,16 @@ def main():
     config = BenchConfig.from_yaml(args.config)
 
     if args.dry_run:
-        seed_secs = compute_seed_duration(config.logstorm_config, config.pre_seed_logs)
+        seed_secs = compute_seed_duration(config.logstorm_base, config.pre_seed_logs)
         total = seed_secs + 5 + config.steady_state_secs + config.heavy_write_secs + config.recovery_secs
         print("=== DRY RUN ===")
+        print(f"Index mode:    {config.index_mode}")
         print(f"Pre-seed:      ~{config.pre_seed_logs:,} logs ({seed_secs}s)")
         print(f"Steady state:  {config.steady_state_secs}s")
         print(f"Heavy write:   {config.heavy_write_secs}s")
         print(f"Recovery:      {config.recovery_secs}s")
         print(f"Total:         ~{total}s ({total // 60}m {total % 60}s)")
-        print(f"Backends:      {list(config.backends.keys())}")
+        print(f"Backends:      {config.backends}")
         return
 
     run_benchmark(config, skip_load=not args.seed)

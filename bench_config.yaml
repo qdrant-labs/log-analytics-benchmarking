@@ -1,27 +1,33 @@
+# single source of truth for search mode
+index_mode: hybrid  # "vector" | "keyword" | "hybrid"
+
 # how many logs to insert before measuring
 pre_seed_logs: 100000
 
 # phase durations (seconds)
 steady_state_secs: 120       # baseline measurement without writes
-heavy_write_secs: 180       # duration of concurrent write load
+heavy_write_secs: 180        # duration of concurrent write load
 recovery_secs: 180           # post-write recovery measurement
 
 # paths
-logstorm_config: "./logstorm_config.yaml"
-qstorm_configs_dir: "./qstorm_configs"
 results_dir: "./results"
+logstorm_base: "./logstorm_base.yaml"
 
-# qstorm backends to test (run simultaneously)
+# shared qstorm settings (applied to all backends)
+qstorm:
+  queries_file: "./qstorm_configs/queries.yaml"
+  warmup_iterations: 10
+  burst_size: 100
+  concurrency: 10
+  timeout_ms: 5000
+  top_k: 10
+  embedding:
+    model: "openai/text-embedding-3-small"
+    dimensions: 1536
+
+# backends to test (run simultaneously)
 backends:
-  qdrant:
-    config: "qdrant.yaml"
-    queries: "queries.yaml"
-  elasticsearch:
-    config: "elastic.yaml"
-    queries: "queries.yaml"
-  # pgvector:
-  #   config: "pgvector.yaml"
-  #   queries: "queries.yaml"
-  opensearch:
-    config: "opensearch.yaml"
-    queries: "queries.yaml"
+  - qdrant
+  - elasticsearch
+  - opensearch
+  # - pgvector
