@@ -13,11 +13,11 @@ variable "instance_type" {
 variable "backends" {
   description = "Which database backends to launch"
   type        = list(string)
-  default     = ["qdrant", "elasticsearch", "pgvector"]
+  default     = ["qdrant", "elasticsearch", "opensearch", "pgvector"]
 
   validation {
-    condition     = alltrue([for b in var.backends : contains(["qdrant", "elasticsearch", "pgvector"], b)])
-    error_message = "Valid backends are: qdrant, elasticsearch, pgvector."
+    condition     = alltrue([for b in var.backends : contains(["qdrant", "elasticsearch", "opensearch", "pgvector"], b)])
+    error_message = "Valid backends are: qdrant, elasticsearch, opensearch, pgvector."
   }
 }
 
@@ -32,6 +32,13 @@ variable "pg_password" {
   description = "PostgreSQL password"
   type        = string
   default     = "changeme"
+  sensitive   = true
+}
+
+variable "opensearch_password" {
+  description = "OpenSearch admin password"
+  type        = string
+  default     = "Changeme1!"
   sensitive   = true
 }
 

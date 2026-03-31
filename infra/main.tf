@@ -225,3 +225,22 @@ resource "aws_instance" "pgvector" {
 
   tags = merge(local.tags, { Name = "bench-pgvector" })
 }
+
+resource "aws_instance" "opensearch" {
+  count = lookup(local.has, "opensearch", false) ? 1 : 0
+
+  ami                         = data.aws_ssm_parameter.al2023_ami.value
+  instance_type               = var.instance_type
+  subnet_id                   = aws_subnet.bench.id
+  vpc_security_group_ids      = [aws_security_group.bench.id]
+  iam_instance_profile        = aws_iam_instance_profile.bench_instance.name
+  associate_public_ip_address = true
+  monitoring                  = true
+  key_name                    = var.key_pair_name != "" ? var.key_pair_name : null
+
+  user_data = templatefile("${path.module}/user_data/opensearch.sh", {
+    opensearch_password = var.opensearch_password
+  })
+
+  tags = merge(local.tags, { Name = "bench-opensearch" })
+}

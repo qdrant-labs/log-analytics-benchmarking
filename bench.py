@@ -45,6 +45,7 @@ class BenchConfig:
         "qdrant": {"config": "qdrant.yaml", "queries": "queries.yaml"},
         "elasticsearch": {"config": "elastic.yaml", "queries": "queries.yaml"},
         "pgvector": {"config": "pgvector.yaml", "queries": "queries.yaml"},
+        "opensearch": {"config": "opensearch.yaml", "queries": "queries.yaml"},
     })
 
     @classmethod
@@ -138,6 +139,13 @@ def _render_qstorm_config(config_path: Path, env: dict) -> Path:
         url = env["QDRANT_URL"]
         # qstorm uses gRPC (6334), QDRANT_URL may point to REST (6333)
         cfg["provider"]["url"] = url.replace(":6333", ":6334")
+        modified = True
+    elif provider_type == "opensearch" and env.get("OPENSEARCH_URL"):
+        cfg["provider"]["url"] = env["OPENSEARCH_URL"]
+        if "credentials" not in cfg["provider"]:
+            cfg["provider"]["credentials"] = {"type": "basic"}
+        cfg["provider"]["credentials"]["username"] = env.get("OPENSEARCH_USER", "admin")
+        cfg["provider"]["credentials"]["password"] = env.get("OPENSEARCH_PASSWORD", "Changeme1!")
         modified = True
     elif provider_type == "pgvector" and env.get("PGVECTOR_HOST"):
         user = env.get("PGVECTOR_USER", "postgres")
@@ -309,11 +317,19 @@ def check_services_healthy(env: dict) -> bool:
     elastic_user = env.get("ELASTIC_USER", "elastic")
     elastic_pass = env.get("ELASTIC_PASSWORD", "changeme")
 
+    opensearch_base = env.get("OPENSEARCH_URL", "http://localhost:9202").rstrip("/")
+    opensearch_user = env.get("OPENSEARCH_USER", "admin")
+    opensearch_pass = env.get("OPENSEARCH_PASSWORD", "Changeme1!")
+
     checks = {
         "Qdrant": (qdrant_health, None),
         "Elasticsearch": (
             f"{elastic_base}/_cluster/health",
             "Basic " + base64.b64encode(f"{elastic_user}:{elastic_pass}".encode()).decode(),
+        ),
+        "OpenSearch": (
+            f"{opensearch_base}/_cluster/health",
+            "Basic " + base64.b64encode(f"{opensearch_user}:{opensearch_pass}".encode()).decode(),
         ),
     }
     all_ok = True

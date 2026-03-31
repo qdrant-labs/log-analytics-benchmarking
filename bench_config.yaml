@@ -22,3 +22,6 @@ backends:
   pgvector:
     config: "pgvector.yaml"
     queries: "queries.yaml"
+  opensearch:
+    config: "opensearch.yaml"
+    queries: "queries.yaml"

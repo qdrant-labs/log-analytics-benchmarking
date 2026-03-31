@@ -16,6 +16,7 @@ SKIP_METRICS = parser.parse_args().skip_metrics
 COLORS = {
     'Qdrant': '#DC244C',
     'Elasticsearch': '#4DBBD5',
+    'OpenSearch': '#005EB8',
     'pgvector': '#00A67E',
 }
 
@@ -47,6 +48,7 @@ with open(f'{RESULTS_DIR}/metadata.json') as f:
 BACKEND_DISPLAY_NAMES = {
     'elasticsearch': 'Elasticsearch',
     'qdrant': 'Qdrant',
+    'opensearch': 'OpenSearch',
     'pgvector': 'pgvector',
 }
 

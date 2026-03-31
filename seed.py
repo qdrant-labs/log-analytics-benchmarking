@@ -178,6 +178,89 @@ def seed_elasticsearch(
         print(f"  {len(errors)} errors (first: {errors[0]})", file=sys.stderr)
 
 
+def seed_opensearch(df: pl.DataFrame, env: dict, batch_size: int = 1000,
+                    index_mode: str = "keyword"):
+    from opensearchpy import OpenSearch, helpers
+
+    url = env.get("OPENSEARCH_URL", "http://localhost:9200")
+    user = env.get("OPENSEARCH_USER", "admin")
+    password = env.get("OPENSEARCH_PASSWORD", "Changeme1!")
+    # parse host/port from URL
+    from urllib.parse import urlparse
+    parsed = urlparse(url)
+    client = OpenSearch(
+        hosts=[{"host": parsed.hostname, "port": parsed.port or 9200}],
+        http_auth=(user, password),
+        use_ssl=parsed.scheme == "https",
+        verify_certs=False,
+    )
+    index = "logs"
+
+    # build mappings
+    properties = {
+        "timestamp": {"type": "date"},
+        "service": {"type": "keyword"},
+        "level": {"type": "keyword"},
+        "message": {"type": "text"},
+    }
+    settings = {}
+    if index_mode in ("vector", "hybrid"):
+        dim = len(df["embedding"][0])
+        properties["dense"] = {
+            "type": "knn_vector",
+            "dimension": dim,
+            "method": {
+                "name": "hnsw",
+                "space_type": "cosinesimil",
+                "engine": "nmslib",
+            },
+        }
+        settings["index"] = {"knn": True}
+
+    # recreate index
+    if client.indices.exists(index=index):
+        client.indices.delete(index=index)
+
+    body = {"mappings": {"properties": properties}}
+    if settings:
+        body["settings"] = settings
+    client.indices.create(index=index, body=body)
+
+    # bulk index
+    total = len(df)
+    print(f"Seeding OpenSearch ({url}) with {total:,} records (mode={index_mode})...")
+    t0 = time.time()
+
+    def gen_actions():
+        for row in df.iter_rows(named=True):
+            doc = {
+                "_index": index,
+                "_id": row["id"],
+                "timestamp": row["timestamp"].isoformat(),
+                "service": row["service"],
+                "level": row["level"],
+                "message": row["message"],
+            }
+            if index_mode in ("vector", "hybrid"):
+                doc["dense"] = row["embedding"]
+            yield doc
+
+    successes, errors = 0, []
+    for ok, item in tqdm(
+        helpers.streaming_bulk(client, gen_actions(), chunk_size=batch_size, raise_on_error=False),
+        total=total, desc="OpenSearch",
+    ):
+        if ok:
+            successes += 1
+        else:
+            errors.append(item)
+
+    elapsed = time.time() - t0
+    print(f"  OpenSearch: {successes:,} records in {elapsed:.1f}s ({successes/elapsed:.0f} records/s)")
+    if errors:
+        print(f"  {len(errors)} errors (first: {errors[0]})", file=sys.stderr)
+
+
 def seed_pgvector(df: pl.DataFrame, env: dict, batch_size: int = 1000):
     import psycopg2
     from pgvector.psycopg2 import register_vector
@@ -240,7 +323,7 @@ def main():
         help="Path to parquet file")
     parser.add_argument(
         "--backend",
-        choices=["qdrant", "elasticsearch", "pgvector"],
+        choices=["qdrant", "elasticsearch", "opensearch", "pgvector"],
         action="append", help="Backends to seed (default: all configured in .env)"
     )
     parser.add_argument(
@@ -283,6 +366,8 @@ def main():
             backends.append("qdrant")
         if env.get("ELASTIC_URL"):
             backends.append("elasticsearch")
+        if env.get("OPENSEARCH_URL"):
+            backends.append("opensearch")
         if env.get("PGVECTOR_HOST"):
             backends.append("pgvector")
         if not backends:
@@ -294,6 +379,8 @@ def main():
             seed_qdrant(df, env, args.batch_size, args.index_mode)
         elif backend == "elasticsearch":
             seed_elasticsearch(df, env, args.batch_size, args.index_mode)
+        elif backend == "opensearch":
+            seed_opensearch(df, env, args.batch_size, args.index_mode)
         elif backend == "pgvector":
             seed_pgvector(df, env, args.batch_size)
 

@@ -43,6 +43,21 @@ output "pgvector_instance_id" {
   value       = length(aws_instance.pgvector) > 0 ? aws_instance.pgvector[0].id : null
 }
 
+output "opensearch_public_ip" {
+  description = "OpenSearch instance public IP"
+  value       = length(aws_instance.opensearch) > 0 ? aws_instance.opensearch[0].public_ip : null
+}
+
+output "opensearch_url" {
+  description = "OpenSearch URL"
+  value       = length(aws_instance.opensearch) > 0 ? "http://${aws_instance.opensearch[0].public_ip}:9200" : null
+}
+
+output "opensearch_instance_id" {
+  description = "OpenSearch EC2 instance ID (for CloudWatch metrics)"
+  value       = length(aws_instance.opensearch) > 0 ? aws_instance.opensearch[0].id : null
+}
+
 output "security_group_id" {
   description = "Security group ID"
   value       = aws_security_group.bench.id
