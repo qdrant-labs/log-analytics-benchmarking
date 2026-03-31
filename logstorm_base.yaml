@@ -13,7 +13,7 @@ embedding:
 
 services:
   - name: api-gateway
-    rate_per_sec: 250.0
+    rate_per_sec: 75.0
     level_weights:
       debug: 0.1
       info: 0.7
@@ -21,7 +21,7 @@ services:
       error: 0.05
 
   - name: auth-service
-    rate_per_sec: 50.0
+    rate_per_sec: 20.0
     level_weights:
       debug: 0.05
       info: 0.6
@@ -29,7 +29,7 @@ services:
       error: 0.15
 
   - name: payment-service
-    rate_per_sec: 10.0
+    rate_per_sec: 5.0
     level_weights:
       debug: 0.05
       info: 0.5
@@ -37,7 +37,7 @@ services:
       error: 0.2
 
   - name: user-service
-    rate_per_sec: 100.0
+    rate_per_sec: 25.0
     level_weights:
       debug: 0.1
       info: 0.65

@@ -28,6 +28,8 @@ from pathlib import Path
 
 import yaml
 
+sys.path.append(str(Path(__file__).parent.parent))  # for imports from logbench
+
 from logbench import BenchConfig, get_backends, load_env
 from logbench.generators import generate_qstorm_config, generate_logstorm_config
 
@@ -35,7 +37,9 @@ log = logging.getLogger("bench")
 
 
 def compute_seed_duration(logstorm_base: str, target_logs: int) -> int:
-    """Compute how long to run logstorm to produce ~target_logs."""
+    """
+    Compute how long to run logstorm to produce ~target_logs.
+    """
     with open(logstorm_base) as f:
         cfg = yaml.safe_load(f)
     total_rate = sum(s["rate_per_sec"] for s in cfg.get("services", []))

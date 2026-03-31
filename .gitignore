@@ -39,3 +39,6 @@ venv/
 ENV/
 .vscode/
 
+
+steady_state.csv
+steady_state.svg
